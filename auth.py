@@ -59,12 +59,19 @@ def decode_token(token: str) -> dict | None:
 def jwt_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
-        authorization = request.headers.get("Authorization", "")
-        parts = authorization.split()
-        if len(parts) != 2 or parts[0].lower() != "bearer":
-            return jsonify(error="Se requiere Authorization: Bearer <token>"), 401
+        authorization = request.headers.get("Authorization", "").strip()
+        if not authorization:
+            return jsonify(error="Se requiere el token de autorización"), 401
 
-        payload = decode_token(parts[1])
+        parts = authorization.split()
+        if len(parts) == 1:
+            token = parts[0]
+        elif len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+        else:
+            return jsonify(error="Formato de autorización inválido"), 401
+
+        payload = decode_token(token)
         if payload is None:
             return jsonify(error="Token inválido o expirado"), 401
 

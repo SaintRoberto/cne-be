@@ -53,11 +53,16 @@ class ApiTestCase(unittest.TestCase):
         token = registered.get_json()["token"]
 
         me = self.client.get(
-            "/api/usuarios/me", headers={"Authorization": f"Bearer {token}"}
+            "/api/usuarios/me", headers={"Authorization": token}
         )
         self.assertEqual(me.status_code, 200)
         self.assertEqual(me.get_json()["usuario"], "admin")
         self.assertNotIn("clave", me.get_json())
+
+        me_with_bearer = self.client.get(
+            "/api/usuarios/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        self.assertEqual(me_with_bearer.status_code, 200)
 
         login = self.client.post(
             "/api/usuarios/login",

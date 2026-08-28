@@ -5,7 +5,7 @@ repositorio `simulacro-backend`: un archivo raíz de aplicación, autenticación
 modelos y esquemas, más una carpeta/Blueprint independiente por dominio.
 
 Incluye PostgreSQL, SQLAlchemy, JWT, hashing bcrypt mediante Passlib, validación
-Marshmallow, CORS, Swagger UI, Docker Compose y pruebas de integración.
+Marshmallow, CORS, Swagger UI y pruebas de integración.
 
 ## Estructura
 
@@ -28,25 +28,8 @@ cne-be/
 │   └── validation.py       # Validación JSON compartida
 ├── tests/
 │   └── test_api.py         # Pruebas sin PostgreSQL externo
-├── requirements.txt
-├── Dockerfile
-└── docker-compose.yml
+└── requirements.txt
 ```
-
-## Inicio rápido con Docker
-
-Requiere Docker y Docker Compose:
-
-```bash
-docker compose up --build
-```
-
-El contenedor espera a PostgreSQL, crea las tablas y levanta la API en
-`http://localhost:5000`.
-
-- Swagger UI: `http://localhost:5000/apidocs/`
-- Especificación JSON: `http://localhost:5000/apispec_1.json`
-- Health check: `http://localhost:5000/api/health`
 
 ## Instalación local
 
@@ -59,25 +42,31 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Copia `.env.example` a `.env` como referencia. La aplicación no carga archivos
-`.env` automáticamente para evitar otra dependencia; exporta las variables en tu
-shell o configúralas desde el IDE/contenedor. Como mínimo, cambia
+Copia `.env.example` a `.env` y completa allí la conexión PostgreSQL y la clave
+JWT. La aplicación carga ese archivo automáticamente mediante `python-dotenv`.
+El archivo `.env` está excluido de Git y no debe compartirse. Como mínimo, cambia
 `JWT_SECRET_KEY` fuera de desarrollo.
 
 En PowerShell:
 
 ```powershell
-$env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/cne_db"
+$env:DATABASE_URL = "postgresql+psycopg://postgres:TU_PASSWORD@localhost:5432/proceso_electoral"
 $env:JWT_SECRET_KEY = "una-clave-larga-y-aleatoria"
 flask --app app init-db
 python app.py
 ```
 
+La API estará disponible en `http://localhost:5000`:
+
+- Swagger UI: `http://localhost:5000/apidocs/`
+- Especificación JSON: `http://localhost:5000/apispec_1.json`
+- Health check: `http://localhost:5000/api/health`
+
 ## Flujo de autenticación
 
 1. Registra un usuario con `POST /api/usuarios/register`.
 2. También puedes obtener un token con `POST /api/usuarios/login`.
-3. En Swagger pulsa **Authorize** y escribe `Bearer <token>`.
+3. En Swagger pulsa **Authorize** y pega únicamente el token, sin `Bearer`.
 4. Consume los endpoints protegidos de usuarios y riesgos.
 
 Ejemplo de registro:
@@ -98,7 +87,7 @@ Ejemplo de riesgo:
 ```bash
 curl -X POST http://localhost:5000/api/riesgos \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Authorization: TU_TOKEN" \
   -d '{
     "titulo": "Pérdida de datos",
     "descripcion": "Falla del almacenamiento principal",

@@ -25,7 +25,7 @@ SWAGGER_TEMPLATE = {
             "type": "apiKey",
             "name": "Authorization",
             "in": "header",
-            "description": "Escriba: Bearer <token JWT>",
+            "description": "Pegue únicamente el token JWT (comienza con eyJ).",
         }
     },
     "definitions": {
@@ -115,8 +115,12 @@ def create_app(config_override=None) -> Flask:
         return jsonify(error="Método no permitido"), 405
 
     @app.errorhandler(500)
-    def internal_error(_error):
+    def internal_error(error):
         db.session.rollback()
+        app.logger.exception(
+            "Error no controlado durante la petición",
+            exc_info=getattr(error, "original_exception", error),
+        )
         return jsonify(error="Error interno del servidor"), 500
 
     @app.cli.command("init-db")

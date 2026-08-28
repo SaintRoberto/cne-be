@@ -1,10 +1,15 @@
 import os
 
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
 
 def _database_url() -> str:
     url = os.getenv(
         "DATABASE_URL",
-        "postgresql+psycopg://postgres:postgres@localhost:5432/cne_db",
+        "postgresql+psycopg://postgres:postgres@localhost:5432/proceso_electoral",
     )
     # Some hosting providers still expose the deprecated postgres:// scheme.
     if url.startswith("postgres://"):

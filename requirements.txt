@@ -2,6 +2,7 @@ Flask==2.3.3
 Flask-SQLAlchemy==3.0.5
 psycopg[binary]
 Flask-CORS==4.0.0
+python-dotenv==1.0.1
 
 # Security
 PyJWT==2.8.0
