@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 
 from auth import generate_token, hash_password, jwt_required, verify_password
 from extensions import db
-from models import Usuario
+from models import Usuario, utc_now
 from schemas import (
     login_schema,
     register_schema,
@@ -16,6 +16,7 @@ from usuarios import usuarios_bp
 from utils.validation import load_json
 
 
+@usuarios_bp.post("")
 @usuarios_bp.post("/register")
 def register():
     """Registrar un usuario
@@ -39,20 +40,30 @@ def register():
     if error:
         return error
 
+    duplicate_conditions = [Usuario.usuario == data["usuario"]]
+    if data.get("correo"):
+        duplicate_conditions.append(Usuario.correo == data["correo"].lower())
     existing = db.session.scalar(
-        select(Usuario).where(
-            or_(Usuario.usuario == data["usuario"], Usuario.correo == data["correo"])
-        )
+        select(Usuario).where(or_(*duplicate_conditions))
     )
     if existing:
         return jsonify(error="El usuario o correo ya está registrado"), 409
 
     try:
         usuario = Usuario(
+            institucion_id=data["institucion_id"],
             usuario=data["usuario"],
-            correo=data["correo"].lower(),
+            correo=data.get("correo").lower() if data.get("correo") else None,
             clave=hash_password(data["clave"]),
-            nombre=data["nombre"],
+            nombres=data.get("nombres") or data.get("nombre"),
+            apellidos=data.get("apellidos"),
+            descripcion=data.get("descripcion"),
+            celular=data.get("celular"),
+            cedula=data.get("cedula"),
+            aprobado=data["aprobado"],
+            activo=data["activo"],
+            creador=data["creador"],
+            modificador=data["creador"],
         )
     except ValueError as error_message:
         return jsonify(error=str(error_message)), 400
@@ -205,23 +216,52 @@ def update_usuario(usuario_id: int):
     if not data:
         return jsonify(error="Debe enviar al menos un campo"), 400
 
+    duplicate_conditions = []
+    if "usuario" in data:
+        duplicate_conditions.append(Usuario.usuario == data["usuario"])
+    if data.get("correo"):
+        duplicate_conditions.append(Usuario.correo == data["correo"].lower())
+    if duplicate_conditions:
+        existing = db.session.scalar(
+            select(Usuario).where(
+                Usuario.id != usuario_id,
+                or_(*duplicate_conditions),
+            )
+        )
+        if existing:
+            return jsonify(error="El usuario o correo ya está registrado"), 409
+
     if "correo" in data:
-        usuario.correo = data["correo"].lower()
-    if "nombre" in data:
-        usuario.nombre = data["nombre"]
-    if "activo" in data:
-        usuario.activo = data["activo"]
+        usuario.correo = data["correo"].lower() if data["correo"] else None
+    if "nombre" in data and "nombres" not in data:
+        data["nombres"] = data.pop("nombre")
+    for field in (
+        "institucion_id",
+        "usuario",
+        "descripcion",
+        "celular",
+        "nombres",
+        "apellidos",
+        "cedula",
+        "aprobado",
+        "activo",
+        "modificador",
+    ):
+        if field in data:
+            setattr(usuario, field, data[field])
     if "clave" in data:
         try:
             usuario.clave = hash_password(data["clave"])
         except ValueError as error_message:
             return jsonify(error=str(error_message)), 400
+    usuario.modificador = data.get("modificador", g.current_user.usuario)
+    usuario.modificacion = utc_now()
 
     try:
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
-        return jsonify(error="El correo ya está registrado"), 409
+        return jsonify(error="El usuario o correo ya está registrado"), 409
     return jsonify(usuario_response_schema.dump(usuario))
 
 

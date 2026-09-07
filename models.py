@@ -11,53 +11,58 @@ class Usuario(db.Model):
     __tablename__ = "usuarios"
 
     id = db.Column(db.Integer, primary_key=True)
-    usuario = db.Column(db.String(80), unique=True, nullable=False, index=True)
-    correo = db.Column(db.String(255), unique=True, nullable=False, index=True)
-    clave = db.Column(db.String(255), nullable=False)
-    nombre = db.Column(db.String(120), nullable=False)
-    activo = db.Column(db.Boolean, nullable=False, default=True)
-    creado_en = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
-    actualizado_en = db.Column(
-        db.DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
-    )
-
-    riesgos = db.relationship(
-        "Riesgo", back_populates="propietario", cascade="all, delete-orphan"
-    )
-
-
-class Riesgo(db.Model):
-    __tablename__ = "riesgos"
-    __table_args__ = (
-        db.CheckConstraint(
-            "probabilidad >= 0 AND probabilidad <= 1",
-            name="ck_riesgos_probabilidad",
-        ),
-        db.CheckConstraint(
-            "impacto >= 0 AND impacto <= 1", name="ck_riesgos_impacto"
-        ),
-        db.CheckConstraint(
-            "estado IN ('abierto', 'en_progreso', 'mitigado', 'cerrado')",
-            name="ck_riesgos_estado",
-        ),
-    )
-
-    id = db.Column(db.Integer, primary_key=True)
-    titulo = db.Column(db.String(160), nullable=False)
+    institucion_id = db.Column(db.Integer, nullable=False)
+    usuario = db.Column(db.String(100), nullable=False)
+    clave = db.Column(db.String(255), nullable=True)
     descripcion = db.Column(db.Text, nullable=True)
-    probabilidad = db.Column(db.Float, nullable=False)
-    impacto = db.Column(db.Float, nullable=False)
-    estado = db.Column(db.String(30), nullable=False, default="abierto", index=True)
-    propietario_id = db.Column(
-        db.Integer, db.ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False
-    )
-    creado_en = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
-    actualizado_en = db.Column(
-        db.DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
-    )
-
-    propietario = db.relationship("Usuario", back_populates="riesgos")
+    celular = db.Column(db.String(20), nullable=True)
+    correo = db.Column(db.String(150), nullable=True)
+    nombres = db.Column(db.String(100), nullable=True)
+    apellidos = db.Column(db.String(100), nullable=True)
+    cedula = db.Column(db.String(20), nullable=True)
+    aprobado = db.Column(db.Boolean, nullable=True, default=False)
+    activo = db.Column(db.Boolean, nullable=True, default=True)
+    creador = db.Column(db.String(100), nullable=True)
+    creacion = db.Column(db.DateTime, nullable=True, default=utc_now)
+    modificador = db.Column(db.String(100), nullable=True)
+    modificacion = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
 
     @property
-    def nivel(self) -> float:
-        return round(self.probabilidad * self.impacto, 4)
+    def nombre_completo(self) -> str:
+        return " ".join(
+            part.strip() for part in (self.nombres, self.apellidos) if part and part.strip()
+        )
+
+
+class InstitucionCategoria(db.Model):
+    __tablename__ = "institucion_categorias"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(100), nullable=False)
+    descripcion = db.Column(db.Text, nullable=True)
+    activo = db.Column(db.Boolean, nullable=True, default=True)
+    creador = db.Column(db.String(100), nullable=True)
+    creacion = db.Column(db.DateTime, nullable=True, default=utc_now)
+    modificador = db.Column(db.String(100), nullable=True)
+    modificacion = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
+
+    instituciones = db.relationship("Institucion", back_populates="categoria")
+
+
+class Institucion(db.Model):
+    __tablename__ = "instituciones"
+
+    id = db.Column(db.Integer, primary_key=True)
+    institucion_categoria_id = db.Column(
+        db.Integer, db.ForeignKey("institucion_categorias.id"), nullable=True
+    )
+    nombre = db.Column(db.String(200), nullable=False)
+    siglas = db.Column(db.String(50), nullable=True)
+    observaciones = db.Column(db.Text, nullable=True)
+    activo = db.Column(db.Boolean, nullable=True, default=True)
+    creador = db.Column(db.String(100), nullable=True)
+    creacion = db.Column(db.DateTime, nullable=True, default=utc_now)
+    modificador = db.Column(db.String(100), nullable=True)
+    modificacion = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
+
+    categoria = db.relationship("InstitucionCategoria", back_populates="instituciones")

@@ -13,7 +13,7 @@ SWAGGER_TEMPLATE = {
     "swagger": "2.0",
     "info": {
         "title": "CNE API",
-        "description": "Backend Flask con autenticación JWT y gestión de riesgos.",
+        "description": "Backend Flask con autenticación JWT y gestión institucional.",
         "version": "1.0.0",
     },
     "basePath": "/",
@@ -31,12 +31,20 @@ SWAGGER_TEMPLATE = {
     "definitions": {
         "RegisterInput": {
             "type": "object",
-            "required": ["usuario", "correo", "clave", "nombre"],
+            "required": ["institucion_id", "usuario", "clave"],
             "properties": {
+                "institucion_id": {"type": "integer", "example": 1},
                 "usuario": {"type": "string", "example": "admin"},
                 "correo": {"type": "string", "example": "admin@example.com"},
                 "clave": {"type": "string", "format": "password", "example": "ClaveSegura123"},
-                "nombre": {"type": "string", "example": "Administrador"},
+                "nombres": {"type": "string", "example": "Usuario"},
+                "apellidos": {"type": "string", "example": "Administrador"},
+                "descripcion": {"type": "string"},
+                "celular": {"type": "string"},
+                "cedula": {"type": "string"},
+                "aprobado": {"type": "boolean", "default": False},
+                "activo": {"type": "boolean", "default": True},
+                "creador": {"type": "string", "default": "Sistema"},
             },
         },
         "LoginInput": {
@@ -50,25 +58,38 @@ SWAGGER_TEMPLATE = {
         "UserUpdateInput": {
             "type": "object",
             "properties": {
+                "institucion_id": {"type": "integer"},
+                "usuario": {"type": "string"},
                 "correo": {"type": "string"},
                 "clave": {"type": "string", "format": "password"},
-                "nombre": {"type": "string"},
+                "nombres": {"type": "string"},
+                "apellidos": {"type": "string"},
+                "descripcion": {"type": "string"},
+                "celular": {"type": "string"},
+                "cedula": {"type": "string"},
+                "aprobado": {"type": "boolean"},
                 "activo": {"type": "boolean"},
+                "modificador": {"type": "string"},
             },
         },
-        "RiskInput": {
+        "InstitutionCategoryInput": {
             "type": "object",
-            "required": ["titulo", "probabilidad", "impacto"],
+            "required": ["nombre"],
             "properties": {
-                "titulo": {"type": "string", "example": "Pérdida de datos"},
+                "nombre": {"type": "string", "example": "Gobierno central"},
                 "descripcion": {"type": "string"},
-                "probabilidad": {"type": "number", "minimum": 0, "maximum": 1, "example": 0.4},
-                "impacto": {"type": "number", "minimum": 0, "maximum": 1, "example": 0.9},
-                "estado": {
-                    "type": "string",
-                    "enum": ["abierto", "en_progreso", "mitigado", "cerrado"],
-                    "default": "abierto",
-                },
+                "activo": {"type": "boolean", "default": True},
+            },
+        },
+        "InstitutionInput": {
+            "type": "object",
+            "required": ["nombre"],
+            "properties": {
+                "institucion_categoria_id": {"type": "integer"},
+                "nombre": {"type": "string", "example": "Consejo Nacional Electoral"},
+                "siglas": {"type": "string", "example": "CNE"},
+                "observaciones": {"type": "string"},
+                "activo": {"type": "boolean", "default": True},
             },
         },
     },
@@ -89,11 +110,15 @@ def create_app(config_override=None) -> Flask:
         allow_headers=["Content-Type", "Authorization"],
     )
 
-    from riesgos import riesgos_bp
+    from institucion_categorias import institucion_categorias_bp
+    from instituciones import instituciones_bp
+    from generic_resources import generic_resources_bp
     from usuarios import usuarios_bp
 
     app.register_blueprint(usuarios_bp)
-    app.register_blueprint(riesgos_bp)
+    app.register_blueprint(institucion_categorias_bp)
+    app.register_blueprint(instituciones_bp)
+    app.register_blueprint(generic_resources_bp)
 
     @app.get("/api/health")
     def health():
