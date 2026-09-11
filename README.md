@@ -116,10 +116,69 @@ Los recursos creados por reflexión de tablas tienen el mismo patrón CRUD:
 `GET/POST /api/{recurso}` y `GET/PUT/PATCH/DELETE /api/{recurso}/{id}`.
 
 Recursos disponibles:
-`provincias`, `cantones`, `parroquias`, `evento-atencion-estados`,
+`provincias`, `cantones`, `parroquias`, `zonas`, `evento-atencion-estados`,
 `evento-categorias`, `evento-causas`, `evento-clases`, `evento-estados`,
 `evento-fenomenos`, `evento-origenes`, `evento-subtipos`, `evento-tipos`,
 `eventos`, `infraestructura-tipos` e `infraestructuras`.
+
+### ImportaciÃ³n del maestro DPA
+
+Primero crea las tablas geogrÃ¡ficas con `flask --app app init-db`. DespuÃ©s,
+un usuario autenticado puede importar el CSV maestro mediante
+`POST /api/ubicaciones/importar`, enviando el archivo en `multipart/form-data`
+con el campo `archivo`. El archivo debe estar codificado en UTF-8, separado por
+`;` y contener las columnas del maestro CNE: cÃ³digos y nombres de provincia,
+cantÃ³n, parroquia, zona y `Total_Recintos`.
+
+La operacion es atomica. Primero se valida el archivo completo y despues se
+vacian `zonas`, `parroquias`, `cantones` y `provincias`, se reinician sus
+identificadores y se carga nuevamente todo el catalogo desde el CSV. El archivo
+representa siempre el estado completo del maestro DPA: los registros ausentes
+se eliminan y los nuevos se crean.
+
+Si una fila es invalida, o la nueva carga falla, la transaccion se revierte y
+el catalogo anterior permanece sin cambios. Las zonas se consultan con
+`GET /api/zonas/parroquia/{parroquia_id}`.
+
+Los codigos locales se completan antes de componer el DPA: provincia a 2
+digitos, canton a 3, parroquia a 4 y zona a 2. Cada nivel concatena el DPA de
+sus padres y su identificador es el mismo DPA convertido a numero:
+
+- provincia `01`: DPA `01`, ID `1`;
+- canton `260`: DPA `01260`, ID `1260`, `provincia_id=1`;
+- parroquia `285`: DPA `012600285`, ID `12600285`, `canton_id=1260`;
+- zona `3`: DPA `01260028503`, ID `1260028503`,
+  `parroquia_id=12600285`.
+
+El identificador de zona es `BIGINT`, ya que el DPA completo puede tener 11
+digitos. Para una base existente, ejecuta una vez
+`migrations/prepare_composite_dpa_ids.sql` antes de volver a importar el CSV.
+
+```bash
+curl -X POST http://localhost:5000/api/ubicaciones/importar \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -F "archivo=@Maestro_DPA_CNE_2026.csv"
+```
+
+### Importacion de recintos electorales
+
+El CRUD autenticado esta disponible en `GET/POST /api/infraestructuras` y
+`GET/PUT/PATCH/DELETE /api/infraestructuras/{id}`. La carga masiva usa
+`POST /api/infraestructuras/importar` con el CSV en el campo multipart
+`archivo`.
+
+El importador compone el DPA de 15 digitos con provincia (2), canton (3),
+parroquia (4), zona (2) y recinto (4). Los campos geograficos guardan los IDs
+DPA compuestos de sus respectivos catalogos. Los registros se crean o actualizan
+por DPA y no se eliminan los recintos ausentes del archivo. El `id` de cada
+infraestructura es el mismo DPA convertido a numero, es decir, sin el cero de la
+izquierda: `015566875055021` se guarda como `15566875055021`.
+
+```bash
+curl -X POST http://localhost:5000/api/infraestructuras/importar \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -F "archivo=@Distirbutivo_Recintos_2027.csv"
+```
 
 ## Pruebas
 

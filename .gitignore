@@ -13,3 +13,4 @@ htmlcov/
 .vscode/
 *.log
 instance/
+.playwright-mcp/

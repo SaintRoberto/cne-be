@@ -42,3 +42,75 @@ CREATE TABLE IF NOT EXISTS usuarios (
     modificador VARCHAR(100),
     modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS provincias (
+    id INTEGER PRIMARY KEY,
+    dpa VARCHAR(2) NOT NULL UNIQUE,
+    nombre VARCHAR(100) NOT NULL,
+    abreviatura VARCHAR(10),
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    creador VARCHAR(100),
+    creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modificador VARCHAR(100),
+    modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cantones (
+    id INTEGER PRIMARY KEY,
+    provincia_id INTEGER NOT NULL REFERENCES provincias(id),
+    dpa VARCHAR(5) NOT NULL UNIQUE,
+    nombre VARCHAR(100) NOT NULL,
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    creador VARCHAR(100),
+    creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modificador VARCHAR(100),
+    modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS parroquias (
+    id INTEGER PRIMARY KEY,
+    provincia_id INTEGER NOT NULL REFERENCES provincias(id),
+    canton_id INTEGER NOT NULL REFERENCES cantones(id),
+    dpa VARCHAR(9) NOT NULL UNIQUE,
+    nombre VARCHAR(100) NOT NULL,
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    creador VARCHAR(100),
+    creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modificador VARCHAR(100),
+    modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS public.zonas (
+    id BIGINT PRIMARY KEY,
+    provincia_id INTEGER NOT NULL REFERENCES provincias(id),
+    canton_id INTEGER NOT NULL REFERENCES cantones(id),
+    parroquia_id INTEGER NOT NULL REFERENCES parroquias(id),
+    dpa VARCHAR(11) NOT NULL UNIQUE,
+    nombre VARCHAR(100) NOT NULL,
+    abreviatura VARCHAR(10),
+    activo BOOLEAN DEFAULT TRUE,
+    creador VARCHAR(100),
+    creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modificador VARCHAR(100),
+    modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS public.infraestructuras (
+    id BIGINT PRIMARY KEY,
+    provincia_id INTEGER NOT NULL REFERENCES provincias(id),
+    canton_id INTEGER NOT NULL REFERENCES cantones(id),
+    parroquia_id INTEGER NOT NULL REFERENCES parroquias(id),
+    zona_id BIGINT NOT NULL REFERENCES zonas(id),
+    dpa VARCHAR(15) NOT NULL UNIQUE,
+    infraestructura_tipo_id INTEGER,
+    nombre TEXT,
+    direccion TEXT,
+    longitud NUMERIC(15,12) DEFAULT 0,
+    latitud NUMERIC(15,12) DEFAULT 0,
+    activo BOOLEAN DEFAULT TRUE,
+    creador TEXT,
+    creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modificador TEXT,
+    modificacion TIMESTAMP,
+    CONSTRAINT ck_infraestructuras_id_dpa CHECK (id = dpa::BIGINT)
+);

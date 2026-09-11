@@ -113,12 +113,16 @@ def create_app(config_override=None) -> Flask:
     from institucion_categorias import institucion_categorias_bp
     from instituciones import instituciones_bp
     from generic_resources import generic_resources_bp
+    from infraestructuras import infraestructuras_bp
+    from ubicaciones import ubicaciones_bp
     from usuarios import usuarios_bp
 
     app.register_blueprint(usuarios_bp)
     app.register_blueprint(institucion_categorias_bp)
     app.register_blueprint(instituciones_bp)
     app.register_blueprint(generic_resources_bp)
+    app.register_blueprint(infraestructuras_bp)
+    app.register_blueprint(ubicaciones_bp)
 
     @app.get("/api/health")
     def health():
