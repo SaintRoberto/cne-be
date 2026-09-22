@@ -19,6 +19,20 @@ class ApiTestCase(unittest.TestCase):
             }
         )
         self.client = self.app.test_client()
+        for table_name in (
+            "afectacion_variables",
+            "afectacion_variable_registros",
+            "afectacion_variable_registro_detalles",
+            "afectaciones_registros",
+            "afectaciones_variable_registros",
+            "evento_subtipos",
+            "evento_tipos",
+            "eventos",
+            "mesas",
+        ):
+            table = db.metadata.tables.get(table_name)
+            if table is not None:
+                db.metadata.remove(table)
         with self.app.app_context():
             db.create_all()
 
@@ -427,12 +441,183 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(deleted.status_code, 204)
 
+    def test_list_infrastructures_by_parish_type_and_emergency(self):
+        with self.app.app_context():
+            db.session.execute(
+                text(
+                    """
+                    DELETE FROM emergencias
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE afectacion_variable_registros (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        emergencia_id INTEGER NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE afectacion_variable_registro_detalles (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        afectacion_variable_registro_id INTEGER NOT NULL,
+                        infraestructura_id BIGINT NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO emergencias (id, nombre)
+                    VALUES (99, 'Proceso Electoral'), (100, 'Otra emergencia')
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    DELETE FROM infraestructura_tipos
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO infraestructura_tipos (id, emergencia_id, nombre)
+                    VALUES
+                        (2, 99, 'Recinto electoral'),
+                        (3, 100, 'Bodega')
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO infraestructuras (
+                        id,
+                        provincia_id,
+                        canton_id,
+                        parroquia_id,
+                        zona_id,
+                        dpa,
+                        infraestructura_tipo_id,
+                        nombre,
+                        direccion,
+                        longitud,
+                        latitud
+                    )
+                    VALUES
+                        (
+                            130801010100001,
+                            13,
+                            1308,
+                            130801,
+                            1308010101,
+                            '130801010100001',
+                            2,
+                            'Infraestructura disponible',
+                            'Calle uno',
+                            -79.5,
+                            -1.5
+                        ),
+                        (
+                            130801010100002,
+                            13,
+                            1308,
+                            130801,
+                            1308010101,
+                            '130801010100002',
+                            2,
+                            'Infraestructura afectada',
+                            'Calle dos',
+                            0,
+                            0
+                        ),
+                        (
+                            130801010100003,
+                            13,
+                            1308,
+                            130801,
+                            1308010101,
+                            '130801010100003',
+                            3,
+                            'Otro tipo',
+                            'Calle tres',
+                            -80,
+                            -2
+                        )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO afectacion_variable_registros (id, emergencia_id)
+                    VALUES (1, 99), (2, 100)
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO afectacion_variable_registro_detalles (
+                        afectacion_variable_registro_id,
+                        infraestructura_id
+                    )
+                    VALUES
+                        (1, 130801010100002),
+                        (2, 130801010100001)
+                    """
+                )
+            )
+            db.session.commit()
+
+        token = self.register().get_json()["token"]
+        response = self.client.get(
+            (
+                "/api/infraestructuras/parroquia/130801/"
+                "infraestructura_tipo/2/emergencia/99"
+            ),
+            headers={"Authorization": token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            [
+                {
+                    "direccion": "Calle uno",
+                    "id": 130801010100001,
+                    "institucion": None,
+                    "latitud": -1.5,
+                    "longitud": -79.5,
+                    "nombre": "Infraestructura disponible",
+                    "tipologia": "Recinto electoral",
+                },
+                {
+                    "direccion": "Calle dos",
+                    "id": 130801010100002,
+                    "institucion": None,
+                    "latitud": 0.0,
+                    "longitud": 0.0,
+                    "nombre": "Infraestructura afectada",
+                    "tipologia": "Recinto electoral",
+                }
+            ],
+        )
+
     def test_list_event_subtypes_by_event_type(self):
         with self.app.app_context():
             db.session.execute(
                 text(
                     """
-                    CREATE TABLE evento_subtipos (
+                    CREATE TABLE IF NOT EXISTS evento_subtipos (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         evento_tipo_id INTEGER NOT NULL,
                         nombre VARCHAR(100) NOT NULL
@@ -440,6 +625,7 @@ class ApiTestCase(unittest.TestCase):
                     """
                 )
             )
+            db.session.execute(text("DELETE FROM evento_subtipos"))
             db.session.execute(
                 text(
                     """
@@ -460,6 +646,687 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(
             [subtipo["nombre"] for subtipo in response.get_json()],
             ["Subtipo uno", "Subtipo tres"],
+        )
+
+    def test_list_event_types_by_institution(self):
+        with self.app.app_context():
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS evento_tipos (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        institucion_id INTEGER NOT NULL,
+                        nombre VARCHAR(100) NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM evento_tipos"))
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO evento_tipos (institucion_id, nombre)
+                    VALUES
+                        (10, 'Inundacion'),
+                        (20, 'Incendio'),
+                        (10, 'Deslizamiento')
+                    """
+                )
+            )
+            db.session.commit()
+
+        token = self.register().get_json()["token"]
+        response = self.client.get(
+            "/api/evento-tipos/institucion/10",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [tipo["nombre"] for tipo in response.get_json()],
+            ["Inundacion", "Deslizamiento"],
+        )
+
+    def test_list_affectation_variables_for_events(self):
+        with self.app.app_context():
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO parroquias (id, provincia_id, canton_id, dpa, nombre)
+                    VALUES (130801, 13, 1308, '130801', 'Los Esteros')
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS evento_tipos (
+                        id INTEGER PRIMARY KEY,
+                        institucion_id INTEGER,
+                        nombre VARCHAR(100) NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM evento_tipos"))
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS evento_subtipos (
+                        id INTEGER PRIMARY KEY,
+                        evento_tipo_id INTEGER,
+                        nombre VARCHAR(100) NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM evento_subtipos"))
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS eventos (
+                        id INTEGER PRIMARY KEY,
+                        emergencia_id INTEGER NOT NULL,
+                        provincia_id INTEGER NOT NULL,
+                        canton_id INTEGER NOT NULL,
+                        parroquia_id INTEGER NOT NULL,
+                        sector VARCHAR(1000) NOT NULL,
+                        evento_tipo_id INTEGER NOT NULL,
+                        evento_subtipo_id INTEGER NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS afectacion_variables (
+                        id INTEGER PRIMARY KEY,
+                        nombre VARCHAR(255) NOT NULL,
+                        requiere_gis BOOLEAN NOT NULL DEFAULT 0,
+                        coe_id INTEGER NOT NULL,
+                        mesa_grupo_id INTEGER NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS afectaciones_registros (
+                        id INTEGER PRIMARY KEY,
+                        evento_id INTEGER NOT NULL,
+                        afectacion_variable_id INTEGER NOT NULL,
+                        cantidad NUMERIC DEFAULT 0,
+                        costo NUMERIC DEFAULT 0
+                    )
+                    """
+                )
+            )
+            db.session.commit()
+            table_columns = {
+                table_name: {
+                    column["name"]
+                    for column in inspect(db.engine).get_columns(table_name)
+                }
+                for table_name in (
+                    "evento_tipos",
+                    "evento_subtipos",
+                    "eventos",
+                )
+            }
+            event_type_values = {
+                "id": 1,
+                "institucion_id": 999,
+                "nombre": "Inundacion",
+            }
+            event_type_values = {
+                column: value
+                for column, value in event_type_values.items()
+                if column in table_columns["evento_tipos"]
+            }
+            db.session.execute(
+                text(
+                    "INSERT INTO evento_tipos "
+                    f"({', '.join(event_type_values)}) "
+                    f"VALUES ({', '.join(f':{column}' for column in event_type_values)})"
+                ),
+                event_type_values,
+            )
+            event_subtype_values = {
+                "id": 2,
+                "evento_tipo_id": 1,
+                "nombre": "Inundacion pluvial",
+            }
+            event_subtype_values = {
+                column: value
+                for column, value in event_subtype_values.items()
+                if column in table_columns["evento_subtipos"]
+            }
+            db.session.execute(
+                text(
+                    "INSERT INTO evento_subtipos "
+                    f"({', '.join(event_subtype_values)}) "
+                    f"VALUES ({', '.join(f':{column}' for column in event_subtype_values)})"
+                ),
+                event_subtype_values,
+            )
+            event_values = {
+                "id": 6962,
+                "emergencia_id": 8,
+                "provincia_id": 13,
+                "canton_id": 1308,
+                "parroquia_id": 130801,
+                "sector": "Villamarina",
+                "evento_tipo_id": 1,
+                "evento_subtipo_id": 2,
+                "evento_causa_id": 1,
+                "evento_origen_id": 1,
+                "alto_impacto": False,
+            }
+            event_values = {
+                column: value
+                for column, value in event_values.items()
+                if column in table_columns["eventos"]
+            }
+            db.session.execute(
+                text(
+                    "INSERT INTO eventos "
+                    f"({', '.join(event_values)}) "
+                    f"VALUES ({', '.join(f':{column}' for column in event_values)})"
+                ),
+                event_values,
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO afectacion_variables (
+                        id, nombre, requiere_gis, coe_id, mesa_grupo_id
+                    )
+                    VALUES
+                        (
+                            1,
+                            'Porcentaje de Servicio de Agua Potable Afectado (%)',
+                            0,
+                            3,
+                            1
+                        ),
+                        (2, 'Viviendas afectadas', 1, 3, 1),
+                        (3, 'No debe salir', 0, 4, 1)
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO afectaciones_registros (
+                        id, evento_id, afectacion_variable_id, cantidad, costo
+                    )
+                    VALUES (77, 6962, 2, 5, 100)
+                    """
+                )
+            )
+            db.session.commit()
+
+        token = self.register().get_json()["token"]
+        response = self.client.get(
+            "/api/afectaciones_registros/eventos/emergencia/8"
+            "/provincia/13/canton/1308/coe/3/mesa_grupo/1/",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            [
+                {
+                    "afectacion_variable_id": 1,
+                    "cantidad": 0,
+                    "costo": 0,
+                    "evento_id": 6962,
+                    "evento_nombre": "Inundacion/Inundacion pluvial",
+                    "evento_sector": "Villamarina",
+                    "id": None,
+                    "parroquia_id": 130801,
+                    "parroquia_nombre": "Los Esteros",
+                    "requiere_gis": False,
+                    "variable_nombre": (
+                        "Porcentaje de Servicio de Agua Potable Afectado (%)"
+                    ),
+                },
+                {
+                    "afectacion_variable_id": 2,
+                    "cantidad": 5,
+                    "costo": 100,
+                    "evento_id": 6962,
+                    "evento_nombre": "Inundacion/Inundacion pluvial",
+                    "evento_sector": "Villamarina",
+                    "id": 77,
+                    "parroquia_id": 130801,
+                    "parroquia_nombre": "Los Esteros",
+                    "requiere_gis": True,
+                    "variable_nombre": "Viviendas afectadas",
+                },
+            ],
+        )
+
+    def test_list_affectation_variables_for_events_without_direct_scope_columns(self):
+        with self.app.app_context():
+            for table_name in (
+                "afectacion_variables",
+                "afectacion_variable_registros",
+                "mesas",
+            ):
+                db.session.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+                table = db.metadata.tables.get(table_name)
+                if table is not None:
+                    db.metadata.remove(table)
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS parroquias (
+                        id INTEGER PRIMARY KEY,
+                        nombre VARCHAR(100) NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM parroquias"))
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS evento_tipos (
+                        id INTEGER PRIMARY KEY,
+                        nombre VARCHAR(100) NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM evento_tipos"))
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS evento_subtipos (
+                        id INTEGER PRIMARY KEY,
+                        evento_tipo_id INTEGER,
+                        nombre VARCHAR(100) NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM evento_subtipos"))
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS eventos (
+                        id INTEGER PRIMARY KEY,
+                        emergencia_id INTEGER NOT NULL,
+                        provincia_id INTEGER NOT NULL,
+                        canton_id INTEGER NOT NULL,
+                        parroquia_id INTEGER NOT NULL,
+                        sector VARCHAR(1000) NOT NULL,
+                        evento_tipo_id INTEGER NOT NULL,
+                        evento_subtipo_id INTEGER NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM eventos"))
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS afectacion_variables (
+                        id INTEGER PRIMARY KEY,
+                        nombre VARCHAR(255) NOT NULL,
+                        requiere_gis BOOLEAN NOT NULL DEFAULT 0,
+                        activo BOOLEAN DEFAULT 1
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM afectacion_variables"))
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS afectacion_variable_registros (
+                        id INTEGER PRIMARY KEY,
+                        evento_id INTEGER NOT NULL,
+                        afectacion_variable_id INTEGER NOT NULL,
+                        cantidad NUMERIC DEFAULT 0,
+                        costo NUMERIC DEFAULT 0
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM afectacion_variable_registros"))
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS mesas (
+                        id INTEGER PRIMARY KEY,
+                        coe_id INTEGER NOT NULL,
+                        mesa_grupo_id INTEGER NOT NULL,
+                        nombre VARCHAR(100) NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM mesas"))
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO parroquias (
+                        id, provincia_id, canton_id, dpa, nombre
+                    )
+                    VALUES (130801, 13, 1308, '130801', 'Los Esteros')
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO evento_tipos (id, nombre)
+                    VALUES (1, 'Inundacion')
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO evento_subtipos (id, evento_tipo_id, nombre)
+                    VALUES (2, 1, 'Inundacion pluvial')
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO eventos (
+                        id,
+                        emergencia_id,
+                        provincia_id,
+                        canton_id,
+                        parroquia_id,
+                        sector,
+                        evento_tipo_id,
+                        evento_subtipo_id
+                    )
+                    VALUES (6962, 8, 13, 1308, 130801, 'Villamarina', 1, 2)
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO afectacion_variables (
+                        id, nombre, requiere_gis, activo
+                    )
+                    VALUES
+                        (1, 'Personas Fallecidas', 1, 1),
+                        (2, 'Personas Heridas', 1, 1)
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO afectacion_variable_registros (
+                        id, evento_id, afectacion_variable_id, cantidad, costo
+                    )
+                    VALUES (77, 6962, 2, 5, 100)
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO mesas (id, coe_id, mesa_grupo_id, nombre)
+                    VALUES (2, 2, 2, 'Recinto Electoral')
+                    """
+                )
+            )
+            db.session.commit()
+
+        token = self.register().get_json()["token"]
+        response = self.client.get(
+            "/api/afectaciones_registros/eventos/emergencia/8"
+            "/provincia/13/canton/1308/coe/2/mesa_grupo/2/",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            [
+                {
+                    "afectacion_variable_id": 1,
+                    "cantidad": 0,
+                    "costo": 0,
+                    "evento_id": 6962,
+                    "evento_nombre": "Inundacion/Inundacion pluvial",
+                    "evento_sector": "Villamarina",
+                    "id": None,
+                    "parroquia_id": 130801,
+                    "parroquia_nombre": "Los Esteros",
+                    "requiere_gis": True,
+                    "variable_nombre": "Personas Fallecidas",
+                },
+                {
+                    "afectacion_variable_id": 2,
+                    "cantidad": 5,
+                    "costo": 100,
+                    "evento_id": 6962,
+                    "evento_nombre": "Inundacion/Inundacion pluvial",
+                    "evento_sector": "Villamarina",
+                    "id": 77,
+                    "parroquia_id": 130801,
+                    "parroquia_nombre": "Los Esteros",
+                    "requiere_gis": True,
+                    "variable_nombre": "Personas Heridas",
+                },
+            ],
+        )
+
+    def test_list_affectation_variables_by_group_and_coe(self):
+        with self.app.app_context():
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS afectacion_variables (
+                        id INTEGER PRIMARY KEY,
+                        activo BOOLEAN DEFAULT 1,
+                        coe_id INTEGER NOT NULL,
+                        creacion TIMESTAMP,
+                        creador VARCHAR(100),
+                        dato_tipo_id INTEGER,
+                        infraestructura_tipo_id INTEGER,
+                        mesa_grupo_id INTEGER NOT NULL,
+                        modificacion TIMESTAMP,
+                        modificador VARCHAR(100),
+                        nombre VARCHAR(255) NOT NULL,
+                        observaciones TEXT,
+                        requiere_costo BOOLEAN DEFAULT 0,
+                        requiere_gis BOOLEAN DEFAULT 0
+                    )
+                    """
+                )
+            )
+            existing_columns = {
+                column["name"]
+                for column in inspect(db.engine).get_columns("afectacion_variables")
+            }
+            expected_columns = {
+                "activo": "BOOLEAN DEFAULT 1",
+                "creacion": "TIMESTAMP",
+                "creador": "VARCHAR(100)",
+                "dato_tipo_id": "INTEGER",
+                "infraestructura_tipo_id": "INTEGER",
+                "modificacion": "TIMESTAMP",
+                "modificador": "VARCHAR(100)",
+                "observaciones": "TEXT",
+                "requiere_costo": "BOOLEAN DEFAULT 0",
+            }
+            for column_name, column_sql in expected_columns.items():
+                if column_name not in existing_columns:
+                    db.session.execute(
+                        text(
+                            "ALTER TABLE afectacion_variables "
+                            f"ADD COLUMN {column_name} {column_sql}"
+                        )
+                    )
+            db.session.execute(text("DELETE FROM afectacion_variables"))
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO afectacion_variables (
+                        id,
+                        activo,
+                        coe_id,
+                        creacion,
+                        creador,
+                        dato_tipo_id,
+                        infraestructura_tipo_id,
+                        mesa_grupo_id,
+                        modificacion,
+                        modificador,
+                        nombre,
+                        observaciones,
+                        requiere_costo,
+                        requiere_gis
+                    )
+                    VALUES
+                        (
+                            1,
+                            1,
+                            3,
+                            '2025-09-30T12:56:00.515590',
+                            'victorsan1972',
+                            3,
+                            -1,
+                            1,
+                            NULL,
+                            NULL,
+                            'Porcentaje de Servicio de Agua Potable Afectado (%)',
+                            '',
+                            1,
+                            0
+                        ),
+                        (2, 1, 4, NULL, NULL, 3, -1, 1, NULL, NULL, 'Otro COE', '', 0, 0),
+                        (3, 1, 3, NULL, NULL, 3, -1, 2, NULL, NULL, 'Otra mesa', '', 0, 0)
+                    """
+                )
+            )
+            db.session.commit()
+
+        token = self.register().get_json()["token"]
+        response = self.client.get(
+            "/api/mesa_grupo/1/afectacion_varibles/coe/3",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            [
+                {
+                    "activo": True,
+                    "coe_id": 3,
+                    "creacion": "2025-09-30T12:56:00.515590",
+                    "creador": "victorsan1972",
+                    "dato_tipo_id": 3,
+                    "id": 1,
+                    "infraestructura_tipo_id": -1,
+                    "mesa_grupo_id": 1,
+                    "modificacion": None,
+                    "modificador": None,
+                    "nombre": (
+                        "Porcentaje de Servicio de Agua Potable Afectado (%)"
+                    ),
+                    "observaciones": "",
+                    "requiere_costo": True,
+                    "requiere_gis": False,
+                }
+            ],
+        )
+
+    def test_list_affectation_variables_by_group_and_coe_without_direct_scope_columns(self):
+        with self.app.app_context():
+            for table_name in ("afectacion_variables", "mesas"):
+                db.session.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+                table = db.metadata.tables.get(table_name)
+                if table is not None:
+                    db.metadata.remove(table)
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS afectacion_variables (
+                        id INTEGER PRIMARY KEY,
+                        nombre VARCHAR(255) NOT NULL,
+                        requiere_gis BOOLEAN NOT NULL DEFAULT 0,
+                        activo BOOLEAN DEFAULT 1
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM afectacion_variables"))
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS mesas (
+                        id INTEGER PRIMARY KEY,
+                        coe_id INTEGER NOT NULL,
+                        mesa_grupo_id INTEGER NOT NULL,
+                        nombre VARCHAR(100) NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(text("DELETE FROM mesas"))
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO afectacion_variables (
+                        id, nombre, requiere_gis, activo
+                    )
+                    VALUES
+                        (1, 'Personas Fallecidas', 1, 1),
+                        (2, 'Personas Heridas', 1, 1)
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO mesas (id, coe_id, mesa_grupo_id, nombre)
+                    VALUES (2, 2, 2, 'Recinto Electoral')
+                    """
+                )
+            )
+            db.session.commit()
+
+        token = self.register().get_json()["token"]
+        response = self.client.get(
+            "/api/mesa_grupo/2/afectacion_varibles/coe/2",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            [
+                {
+                    "activo": True,
+                    "id": 1,
+                    "nombre": "Personas Fallecidas",
+                    "requiere_gis": True,
+                },
+                {
+                    "activo": True,
+                    "id": 2,
+                    "nombre": "Personas Heridas",
+                    "requiere_gis": True,
+                },
+            ],
         )
 
     def test_list_geographic_resources_by_parent(self):
@@ -569,6 +1436,236 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertIsNone(response.get_json()["evento_atencion_estado_id"])
 
+    def test_affectation_variable_resources_crud(self):
+        with self.app.app_context():
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE afectacion_variable_registros (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        emergencia_id INTEGER NOT NULL,
+                        provincia_id INTEGER NOT NULL,
+                        canton_id INTEGER NOT NULL,
+                        parroquia_id INTEGER NOT NULL,
+                        evento_id INTEGER NOT NULL,
+                        afectacion_variable_id INTEGER NOT NULL,
+                        cantidad INTEGER NOT NULL,
+                        costo INTEGER NOT NULL,
+                        activo BOOLEAN DEFAULT 1,
+                        creador TEXT,
+                        creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        modificador TEXT,
+                        modificacion TIMESTAMP,
+                        evento_id_redm INTEGER NOT NULL DEFAULT 0,
+                        afectacion_id_redm INTEGER NOT NULL DEFAULT 0
+                    )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE afectacion_variable_registro_detalles (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        afectacion_variable_registro_id INTEGER NOT NULL,
+                        infraestructura_id BIGINT NOT NULL,
+                        costo INTEGER NOT NULL,
+                        activo BOOLEAN DEFAULT 1,
+                        creador TEXT,
+                        creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        modificador TEXT,
+                        modificacion TIMESTAMP
+                    )
+                    """
+                )
+            )
+            db.session.commit()
+
+        self.assertEqual(self.client.get("/api/afectacion-variable-registros").status_code, 401)
+        token = self.register().get_json()["token"]
+        headers = {"Authorization": token}
+
+        record_payload = {
+            "emergencia_id": 8,
+            "provincia_id": 13,
+            "canton_id": 1308,
+            "parroquia_id": 130801,
+            "evento_id": 3,
+            "afectacion_variable_id": 2,
+            "cantidad": 5,
+            "costo": 100,
+        }
+        created_record = self.client.post(
+            "/api/afectacion-variable-registros",
+            headers=headers,
+            json=record_payload,
+        )
+        self.assertEqual(created_record.status_code, 201)
+        record_id = created_record.get_json()["id"]
+        created_other_event_record = self.client.post(
+            "/api/afectacion-variable-registros",
+            headers=headers,
+            json={**record_payload, "evento_id": 4, "cantidad": 2},
+        )
+        self.assertEqual(created_other_event_record.status_code, 201)
+        other_event_record_id = created_other_event_record.get_json()["id"]
+        self.assertEqual(
+            self.client.get(
+                "/api/afectacion-variable-registros", headers=headers
+            ).status_code,
+            200,
+        )
+        records_by_event = self.client.get(
+            f"/api/afectacion-variable-registros/evento/{record_payload['evento_id']}",
+            headers=headers,
+        )
+        self.assertEqual(records_by_event.status_code, 200)
+        self.assertEqual(
+            [record["id"] for record in records_by_event.get_json()],
+            [record_id],
+        )
+
+        detail = self.client.post(
+            "/api/afectacion-variable-registro-detalles",
+            headers=headers,
+            json={
+                "afectacion_variable_registro_id": record_id,
+                "infraestructura_id": 170600030011402,
+                "costo": 50,
+            },
+        )
+        self.assertEqual(detail.status_code, 201)
+        detail_id = detail.get_json()["id"]
+
+        updated_record = self.client.put(
+            f"/api/afectacion-variable-registros/{record_id}",
+            headers=headers,
+            json={"cantidad": 10, "costo": 0},
+        )
+        self.assertEqual(updated_record.status_code, 200)
+        self.assertEqual(updated_record.get_json()["cantidad"], 10)
+        self.assertEqual(updated_record.get_json()["costo"], 0)
+        self.assertEqual(
+            self.client.get(
+                f"/api/afectacion-variable-registro-detalles/{detail_id}",
+                headers=headers,
+            ).status_code,
+            200,
+        )
+
+        self.assertEqual(
+            self.client.delete(
+                f"/api/afectacion-variable-registro-detalles/{detail_id}",
+                headers=headers,
+            ).status_code,
+            204,
+        )
+        self.assertEqual(
+            self.client.delete(
+                f"/api/afectacion-variable-registros/{other_event_record_id}",
+                headers=headers,
+            ).status_code,
+            204,
+        )
+        self.assertEqual(
+            self.client.delete(
+                f"/api/afectacion-variable-registros/{record_id}",
+                headers=headers,
+            ).status_code,
+            204,
+        )
+
+    def test_affectation_variable_swagger_paths_are_not_duplicated(self):
+        paths = self.client.get("/apispec_1.json").get_json()["paths"]
+
+        self.assertEqual(
+            set(paths["/api/afectacion-variable-registros"]),
+            {"get", "post"},
+        )
+        self.assertEqual(
+            set(paths["/api/afectacion-variable-registros/{item_id}"]),
+            {"delete", "get", "patch", "put"},
+        )
+        self.assertEqual(
+            set(paths["/api/afectacion-variable-registros/evento/{evento_id}"]),
+            {"get"},
+        )
+        self.assertNotIn("/api/afectacion_variable_registros/{item_id}", paths)
+        self.assertEqual(
+            set(paths["/api/afectacion-variable-registro-detalles"]),
+            {"get", "post"},
+        )
+        self.assertEqual(
+            set(paths["/api/afectacion-variable-registro-detalles/{item_id}"]),
+            {"delete", "get", "patch", "put"},
+        )
+        self.assertNotIn("/api/afectacion_variable_registro_detalles", paths)
+        self.assertNotIn(
+            "/api/afectacion_variable_registro_detalles/{item_id}",
+            paths,
+        )
+        record_create_schema = paths[
+            "/api/afectacion-variable-registros"
+        ]["post"]["parameters"][0]["schema"]
+        self.assertEqual(
+            record_create_schema["required"],
+            [
+                "emergencia_id",
+                "provincia_id",
+                "canton_id",
+                "parroquia_id",
+                "evento_id",
+                "afectacion_variable_id",
+                "cantidad",
+                "costo",
+            ],
+        )
+        self.assertEqual(
+            record_create_schema["example"],
+            {
+                "emergencia_id": 8,
+                "provincia_id": 13,
+                "canton_id": 1308,
+                "parroquia_id": 130801,
+                "evento_id": 6962,
+                "afectacion_variable_id": 2,
+                "cantidad": 5,
+                "costo": 100,
+                "activo": True,
+                "evento_id_redm": 0,
+                "afectacion_id_redm": 0,
+            },
+        )
+        detail_create_schema = paths[
+            "/api/afectacion-variable-registro-detalles"
+        ]["post"]["parameters"][0]["schema"]
+        self.assertEqual(
+            detail_create_schema["required"],
+            [
+                "afectacion_variable_registro_id",
+                "infraestructura_id",
+                "costo",
+            ],
+        )
+        self.assertEqual(
+            set(detail_create_schema["properties"]),
+            {
+                "afectacion_variable_registro_id",
+                "infraestructura_id",
+                "costo",
+                "activo",
+            },
+        )
+        self.assertEqual(
+            detail_create_schema["example"],
+            {
+                "afectacion_variable_registro_id": 1,
+                "infraestructura_id": 170600030011402,
+                "costo": 50,
+                "activo": True,
+            },
+        )
+
     def test_z_list_events_includes_related_names_and_descriptions(self):
         with self.app.app_context():
             for table_name in (
@@ -648,6 +1745,7 @@ class ApiTestCase(unittest.TestCase):
                     "provincia_id": 99,
                     "canton_id": 9901,
                     "evento_tipo_id": 91,
+                    "institucion_id": 999,
                 }
                 values = {
                     column_name: value

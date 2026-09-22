@@ -5,7 +5,19 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from flask import current_app, g, jsonify, request
-from sqlalchemy import Date, DateTime, Integer, Numeric, Table, Time, select
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Integer,
+    Numeric,
+    Table,
+    Time,
+    and_,
+    inspect,
+    literal,
+    select,
+    true,
+)
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from auth import jwt_required
@@ -31,6 +43,16 @@ RESOURCES = [
     ("eventos", "eventos", "Eventos"),
     ("infraestructura-tipos", "infraestructura_tipos", "Tipos de infraestructura"),
     ("infraestructuras", "infraestructuras", "Infraestructuras"),
+    (
+        "afectacion-variable-registros",
+        "afectacion_variable_registros",
+        "Registros de variable de afectacion",
+    ),
+    (
+        "afectacion-variable-registro-detalles",
+        "afectacion_variable_registro_detalles",
+        "Detalles de registro de variable de afectacion",
+    ),
 ]
 
 AUDIT_COLUMNS = {"creador", "creacion", "modificador", "modificacion"}
@@ -74,6 +96,14 @@ def _get_table(table_name: str) -> Table:
     return cache[table_name]
 
 
+def _get_first_existing_table(*table_names: str) -> Table | None:
+    inspector = inspect(db.engine)
+    for table_name in table_names:
+        if inspector.has_table(table_name):
+            return _get_table(table_name)
+    return None
+
+
 def _json_value(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -86,6 +116,57 @@ def _json_value(value: Any) -> Any:
 
 def _row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
     return {key: _json_value(value) for key, value in row.items()}
+
+
+def _missing_columns(table: Table, *column_names: str) -> list[str]:
+    return [column_name for column_name in column_names if column_name not in table.c]
+
+
+def _affectation_variable_scope_filters(
+    variables: Table,
+    *,
+    coe_id: int,
+    mesa_grupo_id: int,
+) -> tuple[list[Any], dict[str, list[str]]]:
+    requested_columns = []
+    if coe_id != 0:
+        requested_columns.append("coe_id")
+    if mesa_grupo_id != 0:
+        requested_columns.append("mesa_grupo_id")
+
+    if not requested_columns:
+        return [], {}
+
+    missing_on_variables = _missing_columns(variables, *requested_columns)
+    if not missing_on_variables:
+        filters = []
+        if coe_id != 0:
+            filters.append(variables.c.coe_id == coe_id)
+        if mesa_grupo_id != 0:
+            filters.append(variables.c.mesa_grupo_id == mesa_grupo_id)
+        return filters, {}
+
+    if set(missing_on_variables) != set(requested_columns):
+        return [], {"afectacion_variables": missing_on_variables}
+
+    mesas = _get_first_existing_table("mesas")
+    if mesas is None:
+        return [], {
+            "afectacion_variables": missing_on_variables,
+            "mesas": ["Tabla no encontrada"],
+        }
+
+    missing_on_mesas = _missing_columns(mesas, *requested_columns)
+    if missing_on_mesas:
+        return [], {"mesas": missing_on_mesas}
+
+    mesa_filters = []
+    if coe_id != 0:
+        mesa_filters.append(mesas.c.coe_id == coe_id)
+    if mesa_grupo_id != 0:
+        mesa_filters.append(mesas.c.mesa_grupo_id == mesa_grupo_id)
+
+    return [select(mesas.c.id).where(*mesa_filters).exists()], {}
 
 
 def _writable_columns(table: Table) -> set[str]:
@@ -221,7 +302,7 @@ def _load_payload(table: Table, *, partial: bool) -> tuple[dict[str, Any] | None
 
 def _with_audit_fields(data: dict[str, Any], table: Table, *, creating: bool) -> dict[str, Any]:
     values = dict(data)
-    if table.name == "infraestructuras" and "dpa" in values:
+    if table.name in DPA_WIDTHS and "id" in table.c and "dpa" in values:
         values["id"] = int(values["dpa"])
     username = getattr(g.current_user, "usuario", None)
     now = utc_now()
@@ -274,7 +355,10 @@ def _select_events_with_relations():
         ).add_columns(
             related_table.c.nombre.label(f"{response_prefix}_nombre")
         )
-       
+        if "descripcion" in related_table.c:
+            statement = statement.add_columns(
+                related_table.c.descripcion.label(f"{response_prefix}_descripcion")
+            )
 
     return events, statement
 
@@ -449,6 +533,405 @@ def _make_list_event_subtypes_by_type():
     return list_event_subtypes_by_type
 
 
+def _make_list_event_types_by_institution():
+    @jwt_required
+    def list_event_types_by_institution(institucion_id: int):
+        """Listar tipos de evento por institucion
+        ---
+        tags: [Tipos de evento]
+        security:
+          - Bearer: []
+        parameters:
+          - in: path
+            name: institucion_id
+            type: integer
+            required: true
+            description: Identificador de la institucion
+        responses:
+          200:
+            description: Tipos de evento asociados a la institucion
+          401:
+            description: Token ausente o invalido
+        """
+        table = _get_table("evento_tipos")
+        institution_column = table.c.get("institucion_id")
+        if institution_column is None:
+            current_app.logger.error(
+                "evento_tipos no tiene la columna institucion_id",
+                extra={"columns": list(table.c.keys())},
+            )
+            return jsonify(
+                error="La tabla evento_tipos no tiene la columna institucion_id"
+            ), 500
+
+        order_column = table.c.id if "id" in table.c else next(iter(table.c))
+        rows = db.session.execute(
+            select(table)
+            .where(institution_column == institucion_id)
+            .order_by(order_column)
+        ).mappings().all()
+        return jsonify([_row_to_dict(dict(row)) for row in rows])
+
+    list_event_types_by_institution.__name__ = "list_event_types_by_institution"
+    return list_event_types_by_institution
+
+
+def _make_list_affectation_records_for_variables():
+    @jwt_required
+    def list_affectation_records_for_variables(
+        emergencia_id: int,
+        provincia_id: int,
+        canton_id: int,
+        coe_id: int,
+        mesa_grupo_id: int,
+    ):
+        """Listar variables de afectacion para eventos
+        ---
+        tags: [Afectaciones]
+        security:
+          - Bearer: []
+        parameters:
+          - in: path
+            name: emergencia_id
+            type: integer
+            required: true
+          - in: path
+            name: provincia_id
+            type: integer
+            required: true
+          - in: path
+            name: canton_id
+            type: integer
+            required: true
+          - in: path
+            name: coe_id
+            type: integer
+            required: true
+          - in: path
+            name: mesa_grupo_id
+            type: integer
+            required: true
+        responses:
+          200:
+            description: Variables con registro de afectacion existente o valores iniciales
+          401:
+            description: Token ausente o invalido
+        """
+        events = _get_table("eventos")
+        parishes = _get_table("parroquias")
+        event_types = _get_table("evento_tipos")
+        event_subtypes = _get_table("evento_subtipos")
+        variables = _get_table("afectacion_variables")
+        records = _get_first_existing_table(
+            "afectaciones_variable_registros",
+            "afectacion_variable_registros",
+            "afectaciones_registros",
+        )
+        if records is None:
+            return jsonify(
+                error="Esquema incompleto",
+                detalles={
+                    "afectaciones_variable_registros": [
+                        "Tabla no encontrada",
+                    ],
+                },
+            ), 500
+
+        variable_scope_filters, variable_scope_missing = (
+            _affectation_variable_scope_filters(
+                variables,
+                coe_id=coe_id,
+                mesa_grupo_id=mesa_grupo_id,
+            )
+        )
+
+        required = {
+            "eventos": _missing_columns(
+                events,
+                "id",
+                "emergencia_id",
+                "provincia_id",
+                "canton_id",
+                "parroquia_id",
+                "sector",
+                "evento_tipo_id",
+                "evento_subtipo_id",
+            ),
+            "parroquias": _missing_columns(parishes, "id", "nombre"),
+            "evento_tipos": _missing_columns(event_types, "id", "nombre"),
+            "evento_subtipos": _missing_columns(event_subtypes, "id", "nombre"),
+            "afectacion_variables": _missing_columns(
+                variables,
+                "id",
+                "nombre",
+                "requiere_gis",
+            ),
+            records.name: _missing_columns(
+                records,
+                "id",
+                "evento_id",
+                "afectacion_variable_id",
+                "cantidad",
+                "costo",
+            ),
+        }
+        missing = {
+            table_name: columns
+            for table_name, columns in required.items()
+            if columns
+        }
+        for table_name, columns in variable_scope_missing.items():
+            missing.setdefault(table_name, []).extend(columns)
+        if missing:
+            return jsonify(error="Esquema incompleto", detalles=missing), 500
+
+        event_name = (
+            event_types.c.nombre
+            + literal("/")
+            + event_subtypes.c.nombre
+        ).label("evento_nombre")
+        filters = [
+            events.c.emergencia_id == emergencia_id,
+            events.c.provincia_id == provincia_id,
+            events.c.canton_id == canton_id,
+        ]
+        filters.extend(variable_scope_filters)
+
+        statement = (
+            select(
+                variables.c.id.label("afectacion_variable_id"),
+                db.func.coalesce(records.c.cantidad, 0).label("cantidad"),
+                db.func.coalesce(records.c.costo, 0).label("costo"),
+                events.c.id.label("evento_id"),
+                event_name,
+                events.c.sector.label("evento_sector"),
+                records.c.id.label("id"),
+                events.c.parroquia_id.label("parroquia_id"),
+                parishes.c.nombre.label("parroquia_nombre"),
+                variables.c.requiere_gis.label("requiere_gis"),
+                variables.c.nombre.label("variable_nombre"),
+            )
+            .select_from(
+                events.join(parishes, events.c.parroquia_id == parishes.c.id)
+                .join(event_types, events.c.evento_tipo_id == event_types.c.id)
+                .join(
+                    event_subtypes,
+                    events.c.evento_subtipo_id == event_subtypes.c.id,
+                )
+                .join(variables, true())
+                .outerjoin(
+                    records,
+                    and_(
+                        records.c.evento_id == events.c.id,
+                        records.c.afectacion_variable_id == variables.c.id,
+                    ),
+                )
+            )
+            .where(*filters)
+            .order_by(events.c.id, variables.c.id)
+        )
+        rows = db.session.execute(statement).mappings().all()
+        return jsonify([_row_to_dict(dict(row)) for row in rows])
+
+    list_affectation_records_for_variables.__name__ = (
+        "list_affectation_records_for_variables"
+    )
+    return list_affectation_records_for_variables
+
+
+def _make_list_affectation_variables_by_group_and_coe():
+    @jwt_required
+    def list_affectation_variables_by_group_and_coe(
+        mesa_grupo_id: int,
+        coe_id: int,
+    ):
+        """Listar variables de afectacion por mesa/grupo y COE
+        ---
+        tags: [Afectaciones]
+        security:
+          - Bearer: []
+        parameters:
+          - in: path
+            name: mesa_grupo_id
+            type: integer
+            required: true
+          - in: path
+            name: coe_id
+            type: integer
+            required: true
+        responses:
+          200:
+            description: Variables de afectacion configuradas
+          401:
+            description: Token ausente o invalido
+        """
+        table = _get_table("afectacion_variables")
+        filters, missing = _affectation_variable_scope_filters(
+            table,
+            coe_id=coe_id,
+            mesa_grupo_id=mesa_grupo_id,
+        )
+        if missing:
+            return jsonify(
+                error="Esquema incompleto",
+                detalles=missing,
+            ), 500
+
+        order_column = table.c.id if "id" in table.c else next(iter(table.c))
+
+        statement = select(table)
+        if filters:
+            statement = statement.where(*filters)
+
+        rows = db.session.execute(
+            statement.order_by(order_column)
+        ).mappings().all()
+        return jsonify([_row_to_dict(dict(row)) for row in rows])
+
+    list_affectation_variables_by_group_and_coe.__name__ = (
+        "list_affectation_variables_by_group_and_coe"
+    )
+    return list_affectation_variables_by_group_and_coe
+
+
+def _make_list_affectation_records_by_event():
+    @jwt_required
+    def list_affectation_records_by_event(evento_id: int):
+        """Listar registros de variable de afectacion por evento adverso
+        ---
+        tags: [Registros de variable de afectacion]
+        security:
+          - Bearer: []
+        parameters:
+          - in: path
+            name: evento_id
+            type: integer
+            required: true
+            description: ID del evento adverso seleccionado
+        responses:
+          200:
+            description: Registros de variable de afectacion del evento adverso
+          401:
+            description: Token ausente o invalido
+        """
+        table = _get_table("afectacion_variable_registros")
+        event_column = table.c.get("evento_id")
+        if event_column is None:
+            current_app.logger.error(
+                "afectacion_variable_registros no tiene la columna evento_id",
+                extra={"columns": list(table.c.keys())},
+            )
+            return jsonify(
+                error="La tabla afectacion_variable_registros no tiene la columna evento_id"
+            ), 500
+
+        order_column = table.c.id if "id" in table.c else next(iter(table.c))
+        rows = db.session.execute(
+            select(table)
+            .where(event_column == evento_id)
+            .order_by(order_column)
+        ).mappings().all()
+        return jsonify([_row_to_dict(dict(row)) for row in rows])
+
+    list_affectation_records_by_event.__name__ = (
+        "list_affectation_records_by_event"
+    )
+    return list_affectation_records_by_event
+
+
+def _request_schema_doc(table_name: str, *, partial: bool) -> str:
+    if table_name == "afectacion_variable_registros":
+        required = "" if partial else """          required:
+            - emergencia_id
+            - provincia_id
+            - canton_id
+            - parroquia_id
+            - evento_id
+            - afectacion_variable_id
+            - cantidad
+            - costo
+"""
+        return f"""          type: object
+{required}          properties:
+            emergencia_id:
+              type: integer
+              example: 8
+            provincia_id:
+              type: integer
+              example: 13
+            canton_id:
+              type: integer
+              example: 1308
+            parroquia_id:
+              type: integer
+              example: 130801
+            evento_id:
+              type: integer
+              example: 6962
+            afectacion_variable_id:
+              type: integer
+              example: 2
+            cantidad:
+              type: integer
+              example: 5
+            costo:
+              type: integer
+              example: 100
+            activo:
+              type: boolean
+              example: true
+            evento_id_redm:
+              type: integer
+              example: 0
+            afectacion_id_redm:
+              type: integer
+              example: 0
+          example:
+            emergencia_id: 8
+            provincia_id: 13
+            canton_id: 1308
+            parroquia_id: 130801
+            evento_id: 6962
+            afectacion_variable_id: 2
+            cantidad: 5
+            costo: 100
+            activo: true
+            evento_id_redm: 0
+            afectacion_id_redm: 0"""
+
+    if table_name == "afectacion_variable_registro_detalles":
+        required = "" if partial else """          required:
+            - afectacion_variable_registro_id
+            - infraestructura_id
+            - costo
+"""
+        return f"""          type: object
+{required}          properties:
+            afectacion_variable_registro_id:
+              type: integer
+              example: 1
+              description: ID del registro principal de variable de afectacion
+            infraestructura_id:
+              type: integer
+              format: int64
+              example: 170600030011402
+              description: ID de la infraestructura afectada
+            costo:
+              type: integer
+              example: 50
+              description: Costo asociado a la infraestructura
+            activo:
+              type: boolean
+              example: true
+          example:
+            afectacion_variable_registro_id: 1
+            infraestructura_id: 170600030011402
+            costo: 50
+            activo: true"""
+
+    return "          type: object"
+
+
 def _make_create(table_name: str, label: str):
     @jwt_required
     def create_item():
@@ -470,6 +953,7 @@ def _make_create(table_name: str, label: str):
         return jsonify(_row_to_dict(dict(row))), 201
 
     create_item.__name__ = f"create_{table_name}"
+    schema_doc = _request_schema_doc(table_name, partial=False)
     create_item.__doc__ = f"""Crear {label}
     ---
     tags: [{label}]
@@ -480,7 +964,7 @@ def _make_create(table_name: str, label: str):
         name: body
         required: true
         schema:
-          type: object
+{schema_doc}
     responses:
       201:
         description: Registro creado
@@ -548,6 +1032,7 @@ def _make_update(table_name: str, label: str):
         return jsonify(_row_to_dict(dict(row)))
 
     update_item.__name__ = f"update_{table_name}"
+    schema_doc = _request_schema_doc(table_name, partial=True)
     update_item.__doc__ = f"""Actualizar {label}
     ---
     tags: [{label}]
@@ -562,7 +1047,7 @@ def _make_update(table_name: str, label: str):
         name: body
         required: true
         schema:
-          type: object
+{schema_doc}
     responses:
       200:
         description: Registro actualizado
@@ -653,12 +1138,45 @@ for slug, table_name, label in RESOURCES:
         methods=["DELETE"],
     )
 
-
 generic_resources_bp.add_url_rule(
     "/evento-subtipos/tipo-evento/<int:tipo_evento_id>",
     endpoint="evento_subtipos_by_tipo_evento",
     view_func=_make_list_event_subtypes_by_type(),
     methods=["GET"],
+)
+
+generic_resources_bp.add_url_rule(
+    "/evento-tipos/institucion/<int:institucion_id>",
+    endpoint="evento_tipos_by_institucion",
+    view_func=_make_list_event_types_by_institution(),
+    methods=["GET"],
+)
+
+generic_resources_bp.add_url_rule(
+    "/afectacion-variable-registros/evento/<int:evento_id>",
+    endpoint="afectacion_variable_registros_by_evento",
+    view_func=_make_list_affectation_records_by_event(),
+    methods=["GET"],
+)
+
+generic_resources_bp.add_url_rule(
+    (
+        "/afectaciones_registros/eventos/emergencia/<int:emergencia_id>"
+        "/provincia/<int:provincia_id>/canton/<int:canton_id>"
+        "/coe/<int:coe_id>/mesa_grupo/<int:mesa_grupo_id>/"
+    ),
+    endpoint="afectaciones_registros_eventos",
+    view_func=_make_list_affectation_records_for_variables(),
+    methods=["GET"],
+    strict_slashes=False,
+)
+
+generic_resources_bp.add_url_rule(
+    "/mesa_grupo/<int:mesa_grupo_id>/afectacion_varibles/coe/<int:coe_id>",
+    endpoint="afectacion_variables_by_mesa_grupo_coe",
+    view_func=_make_list_affectation_variables_by_group_and_coe(),
+    methods=["GET"],
+    strict_slashes=False,
 )
 
 generic_resources_bp.add_url_rule(

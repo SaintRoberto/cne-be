@@ -5,7 +5,7 @@ import io
 from decimal import Decimal, InvalidOperation
 
 from flask import g, jsonify, request
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from auth import jwt_required
@@ -41,6 +41,45 @@ class ImportValidationError(ValueError):
 
 class MissingGeographyError(ValueError):
     pass
+
+
+def _missing_table_columns(table_name: str, required_columns: tuple[str, ...]) -> list[str]:
+    inspector = inspect(db.engine)
+    if not inspector.has_table(table_name):
+        return ["Tabla no encontrada"]
+
+    existing_columns = {
+        column["name"] for column in inspector.get_columns(table_name)
+    }
+    return [
+        column_name
+        for column_name in required_columns
+        if column_name not in existing_columns
+    ]
+
+
+def _optional_infrastructure_column(
+    column_names: set[str],
+    column_name: str,
+) -> str:
+    if column_name in column_names:
+        return f"i.{column_name}"
+    return f"NULL AS {column_name}"
+
+
+def _optional_joined_column(
+    table_alias: str,
+    column_names: set[str],
+    column_name: str,
+    label: str,
+) -> str:
+    if column_name in column_names:
+        return f"{table_alias}.{column_name} AS {label}"
+    return f"NULL AS {label}"
+
+
+def _float_or_none(value):
+    return float(value) if value is not None else None
 
 
 def _decimal(value: str, column: str, line: int) -> Decimal:
@@ -148,6 +187,137 @@ def _validate_geography(records: list[dict[str, object]]) -> None:
             raise MissingGeographyError(
                 f"No existen {len(missing)} codigos de {label}: {sample}{suffix}"
             )
+
+
+@infraestructuras_bp.get(
+    "/parroquia/<int:parroquia_id>/infraestructura_tipo/"
+    "<int:infraestructura_tipo_id>/emergencia/<int:emergencia_id>"
+)
+@jwt_required
+def get_infrastructures_by_parish_type_and_emergency(
+    parroquia_id: int,
+    infraestructura_tipo_id: int,
+    emergencia_id: int,
+):
+    """Obtener infraestructuras por parroquia, tipo y emergencia
+    ---
+    tags: [Infraestructuras]
+    security:
+      - Bearer: []
+    parameters:
+      - name: parroquia_id
+        in: path
+        type: integer
+        required: true
+      - name: infraestructura_tipo_id
+        in: path
+        type: integer
+        required: true
+      - name: emergencia_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Lista de infraestructuras por parroquia, tipo y emergencia
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer}
+              nombre: {type: string}
+              direccion: {type: string}
+              tipologia: {type: string}
+              institucion: {type: string}
+              longitud: {type: number}
+              latitud: {type: number}
+      401:
+        description: Token ausente o invalido
+      500:
+        description: Esquema incompleto
+    """
+    required_columns = {
+        "infraestructuras": (
+            "id",
+            "nombre",
+            "direccion",
+            "longitud",
+            "latitud",
+            "parroquia_id",
+            "infraestructura_tipo_id",
+        ),
+        "infraestructura_tipos": ("id", "emergencia_id", "nombre"),
+        "emergencias": ("id",),
+    }
+    missing = {
+        table_name: columns
+        for table_name, columns in (
+            (table_name, _missing_table_columns(table_name, columns))
+            for table_name, columns in required_columns.items()
+        )
+        if columns
+    }
+    if missing:
+        return jsonify(error="Esquema incompleto", detalles=missing), 500
+
+    inspector = inspect(db.engine)
+    infrastructure_columns = {
+        column["name"] for column in inspector.get_columns("infraestructuras")
+    }
+    infrastructure_type_columns = {
+        column["name"] for column in inspector.get_columns("infraestructura_tipos")
+    }
+    tipologia_column = _optional_joined_column(
+        "it", infrastructure_type_columns, "nombre", "tipologia"
+    )
+    institucion_column = _optional_infrastructure_column(
+        infrastructure_columns, "institucion"
+    )
+    query = db.text(
+        f"""
+        SELECT
+            i.id,
+            i.nombre,
+            i.direccion,
+            {tipologia_column},
+            {institucion_column},
+            i.longitud,
+            i.latitud
+        FROM infraestructuras i
+        INNER JOIN emergencias e
+            ON e.id = :emergencia_id
+        INNER JOIN infraestructura_tipos it
+            ON it.id = i.infraestructura_tipo_id
+           AND it.emergencia_id = e.id
+        WHERE i.parroquia_id = :parroquia_id
+          AND i.infraestructura_tipo_id = :infraestructura_tipo_id
+        ORDER BY i.id
+        """
+    )
+    rows = db.session.execute(
+        query,
+        {
+            "parroquia_id": parroquia_id,
+            "infraestructura_tipo_id": infraestructura_tipo_id,
+            "emergencia_id": emergencia_id,
+        },
+    ).mappings().all()
+
+    return jsonify(
+        [
+            {
+                "id": row["id"],
+                "nombre": row["nombre"],
+                "direccion": row["direccion"],
+                "tipologia": row["tipologia"],
+                "institucion": row["institucion"],
+                "longitud": _float_or_none(row["longitud"]),
+                "latitud": _float_or_none(row["latitud"]),
+            }
+            for row in rows
+        ]
+    )
 
 
 @infraestructuras_bp.post("/importar")

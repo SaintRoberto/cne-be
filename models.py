@@ -80,12 +80,24 @@ class Provincia(db.Model):
     nombre = db.Column(db.String(100), nullable=False)
     abreviatura = db.Column(db.String(10), nullable=True)
     activo = db.Column(
-        db.Boolean, nullable=False, default=True, server_default=db.text("true")
+        db.Boolean, nullable=True, default=True, server_default=db.text("true")
     )
     creador = db.Column(db.String(100), nullable=True)
-    creacion = db.Column(db.DateTime, nullable=True, default=utc_now)
+    creacion = db.Column(
+        db.DateTime,
+        nullable=True,
+        default=utc_now,
+        server_default=db.text("CURRENT_TIMESTAMP"),
+    )
     modificador = db.Column(db.String(100), nullable=True)
-    modificacion = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
+    modificacion = db.Column(
+        db.DateTime,
+        nullable=True,
+        default=utc_now,
+        server_default=db.text("CURRENT_TIMESTAMP"),
+        onupdate=utc_now,
+    )
+    googlecode = db.Column(db.String(5), nullable=True)
 
 
 class Canton(db.Model):
@@ -95,13 +107,31 @@ class Canton(db.Model):
     provincia_id = db.Column(db.Integer, db.ForeignKey("provincias.id"), nullable=False)
     dpa = db.Column(db.String(5), nullable=False, unique=True)
     nombre = db.Column(db.String(100), nullable=False)
+    abreviatura = db.Column(db.String(10), nullable=True)
     activo = db.Column(
-        db.Boolean, nullable=False, default=True, server_default=db.text("true")
+        db.Boolean, nullable=True, default=True, server_default=db.text("true")
     )
     creador = db.Column(db.String(100), nullable=True)
-    creacion = db.Column(db.DateTime, nullable=True, default=utc_now)
+    creacion = db.Column(
+        db.DateTime,
+        nullable=True,
+        default=utc_now,
+        server_default=db.text("CURRENT_TIMESTAMP"),
+    )
     modificador = db.Column(db.String(100), nullable=True)
-    modificacion = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
+    modificacion = db.Column(
+        db.DateTime,
+        nullable=True,
+        default=utc_now,
+        server_default=db.text("CURRENT_TIMESTAMP"),
+        onupdate=utc_now,
+    )
+    latitud_centro = db.Column(
+        db.Numeric(15, 12), nullable=True, default=0, server_default="0"
+    )
+    longitud_centro = db.Column(
+        db.Numeric(15, 12), nullable=True, default=0, server_default="0"
+    )
 
 
 class Parroquia(db.Model):
@@ -109,16 +139,34 @@ class Parroquia(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=False)
     provincia_id = db.Column(db.Integer, db.ForeignKey("provincias.id"), nullable=False)
-    canton_id = db.Column(db.Integer, db.ForeignKey("cantones.id"), nullable=False)
+    canton_id = db.Column(db.Integer, nullable=False)
     dpa = db.Column(db.String(9), nullable=False, unique=True)
     nombre = db.Column(db.String(100), nullable=False)
+    abreviatura = db.Column(db.String(10), nullable=True)
     activo = db.Column(
-        db.Boolean, nullable=False, default=True, server_default=db.text("true")
+        db.Boolean, nullable=True, default=True, server_default=db.text("true")
     )
     creador = db.Column(db.String(100), nullable=True)
-    creacion = db.Column(db.DateTime, nullable=True, default=utc_now)
+    creacion = db.Column(
+        db.DateTime,
+        nullable=True,
+        default=utc_now,
+        server_default=db.text("CURRENT_TIMESTAMP"),
+    )
     modificador = db.Column(db.String(100), nullable=True)
-    modificacion = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
+    modificacion = db.Column(
+        db.DateTime,
+        nullable=True,
+        default=utc_now,
+        server_default=db.text("CURRENT_TIMESTAMP"),
+        onupdate=utc_now,
+    )
+    latitud_centro = db.Column(
+        db.Numeric(15, 12), nullable=True, default=0, server_default="0"
+    )
+    longitud_centro = db.Column(
+        db.Numeric(15, 12), nullable=True, default=0, server_default="0"
+    )
 
 
 class Zona(db.Model):
@@ -140,6 +188,78 @@ class Zona(db.Model):
     modificacion = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
 
 
+class Emergencia(db.Model):
+    __tablename__ = "emergencias"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.Text, nullable=False)
+    antecedentes = db.Column(db.Text, nullable=True)
+    situacion_actual = db.Column(db.Text, nullable=True)
+    nivel_afectacion_id = db.Column(db.Integer, nullable=True)
+    nivel_alerta_id = db.Column(db.Integer, nullable=True)
+    fecha_inicio = db.Column(db.DateTime, nullable=True)
+    fecha_fin = db.Column(db.DateTime, nullable=True)
+    etapa_id = db.Column(db.Integer, nullable=True)
+    provincias_impactadas = db.Column(db.Integer, nullable=True)
+    cantones_impactados = db.Column(db.Integer, nullable=True)
+    parroquias_impactadas = db.Column(db.Integer, nullable=True)
+    eventos_adversos = db.Column(db.Integer, nullable=True)
+    declaratorias_emergencia = db.Column(db.Integer, nullable=True)
+    declaratorias_desastre = db.Column(db.Integer, nullable=True)
+    declaratorias_catastrofe = db.Column(db.Integer, nullable=True)
+    costo_estimado_danos = db.Column(db.Numeric(12, 2), nullable=True)
+    activo = db.Column(
+        db.Boolean, nullable=True, default=True, server_default=db.text("true")
+    )
+    creador = db.Column(db.String(100), nullable=True)
+    creacion = db.Column(
+        db.DateTime,
+        nullable=True,
+        default=utc_now,
+        server_default=db.text("CURRENT_TIMESTAMP"),
+    )
+    modificador = db.Column(db.String(100), nullable=True)
+    modificacion = db.Column(
+        db.DateTime,
+        nullable=True,
+        default=utc_now,
+        server_default=db.text("CURRENT_TIMESTAMP"),
+        onupdate=utc_now,
+    )
+    evento_tipo_id = db.Column(db.Integer, nullable=True)
+    dashboard = db.Column(db.Text, nullable=True)
+
+
+class InfraestructuraTipo(db.Model):
+    __tablename__ = "infraestructura_tipos"
+
+    id = db.Column(db.Integer, primary_key=True)
+    emergencia_id = db.Column(
+        db.Integer, db.ForeignKey("emergencias.id"), nullable=True
+    )
+    nombre = db.Column(db.Text, nullable=False)
+    siglas = db.Column(db.Text, nullable=True)
+    descripcion = db.Column(db.Text, nullable=True)
+    activo = db.Column(
+        db.Boolean, nullable=True, default=True, server_default=db.text("true")
+    )
+    creador = db.Column(db.Text, nullable=True)
+    creacion = db.Column(
+        db.DateTime,
+        nullable=True,
+        default=utc_now,
+        server_default=db.text("CURRENT_TIMESTAMP"),
+    )
+    modificador = db.Column(db.Text, nullable=True)
+    modificacion = db.Column(
+        db.DateTime,
+        nullable=True,
+        default=utc_now,
+        server_default=db.text("CURRENT_TIMESTAMP"),
+        onupdate=utc_now,
+    )
+
+
 class Infraestructura(db.Model):
     __tablename__ = "infraestructuras"
     __table_args__ = (
@@ -150,18 +270,27 @@ class Infraestructura(db.Model):
     )
 
     id = db.Column(INFRASTRUCTURE_ID_TYPE, primary_key=True, autoincrement=False)
-    provincia_id = db.Column(db.Integer, db.ForeignKey("provincias.id"), nullable=False)
-    canton_id = db.Column(db.Integer, db.ForeignKey("cantones.id"), nullable=False)
-    parroquia_id = db.Column(db.Integer, db.ForeignKey("parroquias.id"), nullable=False)
-    zona_id = db.Column(ZONE_ID_TYPE, db.ForeignKey("zonas.id"), nullable=False)
-    dpa = db.Column(db.String(15), nullable=False, unique=True)
-    infraestructura_tipo_id = db.Column(db.Integer, nullable=True)
+    provincia_id = db.Column(db.Integer, nullable=False)
+    canton_id = db.Column(db.Integer, nullable=False)
+    parroquia_id = db.Column(db.Integer, nullable=False)
+    zona_id = db.Column(ZONE_ID_TYPE, nullable=False)
+    dpa = db.Column(db.String(15), nullable=False)
+    infraestructura_tipo_id = db.Column(
+        db.Integer, db.ForeignKey("infraestructura_tipos.id"), nullable=True
+    )
     nombre = db.Column(db.Text, nullable=True)
     direccion = db.Column(db.Text, nullable=True)
     longitud = db.Column(db.Numeric(15, 12), nullable=True, default=0, server_default="0")
     latitud = db.Column(db.Numeric(15, 12), nullable=True, default=0, server_default="0")
-    activo = db.Column(db.Boolean, nullable=True, default=True, server_default=db.text("true"))
+    activo = db.Column(
+        db.Boolean, nullable=True, default=True, server_default=db.text("true")
+    )
     creador = db.Column(db.Text, nullable=True)
-    creacion = db.Column(db.DateTime, nullable=True, default=utc_now)
+    creacion = db.Column(
+        db.DateTime,
+        nullable=True,
+        default=utc_now,
+        server_default=db.text("CURRENT_TIMESTAMP"),
+    )
     modificador = db.Column(db.Text, nullable=True)
     modificacion = db.Column(db.DateTime, nullable=True, onupdate=utc_now)

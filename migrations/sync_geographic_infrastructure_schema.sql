@@ -1,0 +1,70 @@
+BEGIN;
+
+ALTER TABLE public.provincias
+    ALTER COLUMN id DROP IDENTITY IF EXISTS,
+    ALTER COLUMN id DROP DEFAULT,
+    ALTER COLUMN dpa TYPE VARCHAR(2),
+    ALTER COLUMN activo DROP NOT NULL,
+    ALTER COLUMN activo SET DEFAULT TRUE,
+    ALTER COLUMN creacion SET DEFAULT CURRENT_TIMESTAMP,
+    ALTER COLUMN modificacion SET DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE public.provincias
+    ADD COLUMN IF NOT EXISTS abreviatura VARCHAR(10),
+    ADD COLUMN IF NOT EXISTS googlecode VARCHAR(5);
+
+ALTER TABLE public.cantones
+    ALTER COLUMN id DROP IDENTITY IF EXISTS,
+    ALTER COLUMN id DROP DEFAULT,
+    ALTER COLUMN dpa TYPE VARCHAR(5),
+    ALTER COLUMN activo DROP NOT NULL,
+    ALTER COLUMN activo SET DEFAULT TRUE,
+    ALTER COLUMN creacion SET DEFAULT CURRENT_TIMESTAMP,
+    ALTER COLUMN modificacion SET DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE public.cantones
+    ADD COLUMN IF NOT EXISTS abreviatura VARCHAR(10),
+    ADD COLUMN IF NOT EXISTS latitud_centro NUMERIC(15,12) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS longitud_centro NUMERIC(15,12) DEFAULT 0;
+
+ALTER TABLE public.parroquias
+    ALTER COLUMN id DROP IDENTITY IF EXISTS,
+    ALTER COLUMN id DROP DEFAULT,
+    ALTER COLUMN dpa TYPE VARCHAR(9),
+    ALTER COLUMN activo DROP NOT NULL,
+    ALTER COLUMN activo SET DEFAULT TRUE,
+    ALTER COLUMN creacion SET DEFAULT CURRENT_TIMESTAMP,
+    ALTER COLUMN modificacion SET DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE public.parroquias
+    ADD COLUMN IF NOT EXISTS abreviatura VARCHAR(10),
+    ADD COLUMN IF NOT EXISTS latitud_centro NUMERIC(15,12) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS longitud_centro NUMERIC(15,12) DEFAULT 0;
+
+ALTER TABLE public.infraestructuras
+    ALTER COLUMN id DROP IDENTITY IF EXISTS,
+    ALTER COLUMN id DROP DEFAULT,
+    ALTER COLUMN id TYPE BIGINT,
+    ALTER COLUMN dpa TYPE VARCHAR(15),
+    ALTER COLUMN creacion SET DEFAULT CURRENT_TIMESTAMP,
+    ALTER COLUMN modificacion DROP DEFAULT,
+    ALTER COLUMN zona_id TYPE BIGINT;
+
+ALTER TABLE public.infraestructuras
+    DROP CONSTRAINT IF EXISTS infraestructuras_provincia_id_fkey,
+    DROP CONSTRAINT IF EXISTS infraestructuras_canton_id_fkey,
+    DROP CONSTRAINT IF EXISTS infraestructuras_parroquia_id_fkey,
+    DROP CONSTRAINT IF EXISTS infraestructuras_zona_id_fkey,
+    DROP CONSTRAINT IF EXISTS infraestructuras_dpa_key,
+    DROP CONSTRAINT IF EXISTS ck_infraestructuras_id_dpa;
+
+ALTER TABLE public.parroquias
+    DROP CONSTRAINT IF EXISTS parroquias_canton_id_fkey;
+
+DROP INDEX IF EXISTS public.uq_infraestructuras_dpa;
+
+ALTER TABLE public.infraestructuras
+    ADD CONSTRAINT ck_infraestructuras_id_dpa
+    CHECK (id = dpa::BIGINT);
+
+COMMIT;

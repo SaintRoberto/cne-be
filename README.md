@@ -119,7 +119,8 @@ Recursos disponibles:
 `provincias`, `cantones`, `parroquias`, `zonas`, `evento-atencion-estados`,
 `evento-categorias`, `evento-causas`, `evento-clases`, `evento-estados`,
 `evento-fenomenos`, `evento-origenes`, `evento-subtipos`, `evento-tipos`,
-`eventos`, `infraestructura-tipos` e `infraestructuras`.
+`eventos`, `infraestructura-tipos`, `infraestructuras`,
+`afectacion-variable-registros` y `afectacion-variable-registro-detalles`.
 
 ### ImportaciÃ³n del maestro DPA
 
@@ -153,6 +154,9 @@ sus padres y su identificador es el mismo DPA convertido a numero:
 El identificador de zona es `BIGINT`, ya que el DPA completo puede tener 11
 digitos. Para una base existente, ejecuta una vez
 `migrations/prepare_composite_dpa_ids.sql` antes de volver a importar el CSV.
+Si la base fue creada con el esquema anterior de provincias, cantones,
+parroquias o infraestructuras, aplica despues
+`migrations/sync_geographic_infrastructure_schema.sql`.
 
 ```bash
 curl -X POST http://localhost:5000/api/ubicaciones/importar \
