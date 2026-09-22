@@ -1,3 +1,5 @@
+from typing import Optional
+
 from flask import g, jsonify
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -14,7 +16,7 @@ from schemas import (
 from utils.validation import load_json
 
 
-def _categoria_existe(categoria_id: int | None) -> bool:
+def _categoria_existe(categoria_id: Optional[int]) -> bool:
     return (
         categoria_id is None
         or db.session.get(InstitucionCategoria, categoria_id) is not None

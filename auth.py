@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from types import SimpleNamespace
+from typing import Optional
 
 import bcrypt
 import jwt
@@ -47,7 +48,7 @@ def generate_token(usuario: Usuario) -> str:
     )
 
 
-def decode_token(token: str) -> dict | None:
+def decode_token(token: str) -> Optional[dict]:
     try:
         return jwt.decode(
             token, current_app.config["JWT_SECRET_KEY"], algorithms=["HS256"]
