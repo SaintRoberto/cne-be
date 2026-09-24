@@ -1399,8 +1399,12 @@ class ApiTestCase(unittest.TestCase):
                         provincia_id INTEGER NOT NULL,
                         canton_id INTEGER NOT NULL,
                         parroquia_id INTEGER NOT NULL,
+                        infraestructura_id INTEGER NOT NULL DEFAULT 0,
+                        afectacion_variable_id INTEGER NOT NULL DEFAULT 0,
                         sector VARCHAR(1000) NOT NULL,
                         evento_fecha TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        longitud NUMERIC(15,12) DEFAULT 0,
+                        latitud NUMERIC(15,12) DEFAULT 0,
                         evento_tipo_id INTEGER NOT NULL,
                         evento_subtipo_id INTEGER,
                         evento_causa_id INTEGER NOT NULL,
@@ -1408,7 +1412,9 @@ class ApiTestCase(unittest.TestCase):
                         evento_atencion_estado_id INTEGER,
                         alto_impacto BOOLEAN NOT NULL DEFAULT 0,
                         situacion VARCHAR(12000),
-                        descripcion VARCHAR(5000)
+                        descripcion VARCHAR(5000),
+                        activo BOOLEAN DEFAULT 1,
+                        evento_id_redm INTEGER NOT NULL DEFAULT 0
                     )
                     """
                 )
@@ -1424,7 +1430,11 @@ class ApiTestCase(unittest.TestCase):
                 "provincia_id": 9,
                 "canton_id": 901,
                 "parroquia_id": 90101,
+                "infraestructura_id": 9010100010001,
+                "afectacion_variable_id": 2,
                 "sector": "Norte",
+                "longitud": -79.889054321123,
+                "latitud": -2.189412345678,
                 "evento_tipo_id": 1,
                 "evento_subtipo_id": 1,
                 "evento_causa_id": 3,
@@ -1434,7 +1444,52 @@ class ApiTestCase(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 201)
-        self.assertIsNone(response.get_json()["evento_atencion_estado_id"])
+        created = response.get_json()
+        self.assertIsNone(created["evento_atencion_estado_id"])
+        self.assertEqual(created["infraestructura_id"], 9010100010001)
+        self.assertEqual(created["afectacion_variable_id"], 2)
+
+        updated = self.client.patch(
+            f"/api/eventos/{created['id']}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "infraestructura_id": 0,
+                "afectacion_variable_id": 5,
+                "situacion": "Seguimiento actualizado",
+            },
+        )
+
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.get_json()["infraestructura_id"], 0)
+        self.assertEqual(updated.get_json()["afectacion_variable_id"], 5)
+        self.assertEqual(updated.get_json()["situacion"], "Seguimiento actualizado")
+
+    def test_eventos_swagger_body_includes_embedded_affectation_fields(self):
+        paths = self.client.get("/apispec_1.json").get_json()["paths"]
+        create_schema = paths["/api/eventos"]["post"]["parameters"][0]["schema"]
+        update_schema = paths["/api/eventos/{item_id}"]["patch"]["parameters"][1]["schema"]
+
+        self.assertEqual(
+            create_schema["required"],
+            [
+                "emergencia_id",
+                "provincia_id",
+                "canton_id",
+                "parroquia_id",
+                "sector",
+                "evento_tipo_id",
+                "evento_causa_id",
+                "evento_origen_id",
+            ],
+        )
+        self.assertIn("infraestructura_id", create_schema["properties"])
+        self.assertIn("afectacion_variable_id", create_schema["properties"])
+        self.assertEqual(
+            create_schema["example"]["infraestructura_id"],
+            130801000100001,
+        )
+        self.assertEqual(create_schema["example"]["afectacion_variable_id"], 2)
+        self.assertNotIn("required", update_schema)
 
     def test_affectation_variable_resources_crud(self):
         with self.app.app_context():

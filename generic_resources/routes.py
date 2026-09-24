@@ -68,6 +68,8 @@ EVENT_LOOKUPS = (
     ("provincias", "provincia_id", "provincia"),
     ("cantones", "canton_id", "canton"),
     ("parroquias", "parroquia_id", "parroquia"),
+    ("infraestructuras", "infraestructura_id", "infraestructura"),
+    ("afectacion_variables", "afectacion_variable_id", "afectacion_variable"),
     ("evento_tipos", "evento_tipo_id", "evento_tipo"),
     ("evento_subtipos", "evento_subtipo_id", "evento_subtipo"),
     ("evento_causas", "evento_causa_id", "evento_causa"),
@@ -347,9 +349,14 @@ def _make_list(table_name: str, label: str):
 def _select_events_with_relations():
     events = _get_table("eventos")
     statement = select(events)
+    inspector = inspect(db.engine)
 
     for table_name, foreign_key_name, response_prefix in EVENT_LOOKUPS:
+        if foreign_key_name not in events.c or not inspector.has_table(table_name):
+            continue
         related_table = _get_table(table_name).alias(response_prefix)
+        if "id" not in related_table.c or "nombre" not in related_table.c:
+            continue
         statement = statement.outerjoin(
             related_table, events.c[foreign_key_name] == related_table.c.id
         ).add_columns(
@@ -840,6 +847,111 @@ def _make_list_affectation_records_by_event():
 
 
 def _request_schema_doc(table_name: str, *, partial: bool) -> str:
+    if table_name == "eventos":
+        required = "" if partial else """          required:
+            - emergencia_id
+            - provincia_id
+            - canton_id
+            - parroquia_id
+            - sector
+            - evento_tipo_id
+            - evento_causa_id
+            - evento_origen_id
+"""
+        return f"""          type: object
+{required}          properties:
+            emergencia_id:
+              type: integer
+              example: 8
+            provincia_id:
+              type: integer
+              example: 13
+            canton_id:
+              type: integer
+              example: 1308
+            parroquia_id:
+              type: integer
+              example: 130801
+            infraestructura_id:
+              type: integer
+              format: int64
+              example: 130801000100001
+              description: ID de infraestructura afectada. Use 0 si no aplica.
+            afectacion_variable_id:
+              type: integer
+              example: 2
+              description: ID de variable de afectacion. Use 0 si no aplica.
+            sector:
+              type: string
+              maxLength: 1000
+              example: Norte
+            evento_fecha:
+              type: string
+              format: date-time
+              example: "2026-09-23T10:30:00-05:00"
+            longitud:
+              type: number
+              format: double
+              example: -79.889054321123
+            latitud:
+              type: number
+              format: double
+              example: -2.189412345678
+            evento_tipo_id:
+              type: integer
+              example: 1
+            evento_subtipo_id:
+              type: integer
+              example: 4
+            evento_causa_id:
+              type: integer
+              example: 3
+            evento_origen_id:
+              type: integer
+              example: 2
+            evento_atencion_estado_id:
+              type: integer
+              nullable: true
+              example: 1
+            alto_impacto:
+              type: boolean
+              example: false
+            descripcion:
+              type: string
+              maxLength: 5000
+              example: Desbordamiento reportado por la comunidad.
+            situacion:
+              type: string
+              maxLength: 12000
+              example: Se registra afectacion en viviendas cercanas al cauce.
+            activo:
+              type: boolean
+              example: true
+            evento_id_redm:
+              type: integer
+              example: 0
+          example:
+            emergencia_id: 8
+            provincia_id: 13
+            canton_id: 1308
+            parroquia_id: 130801
+            infraestructura_id: 130801000100001
+            afectacion_variable_id: 2
+            sector: Norte
+            evento_fecha: "2026-09-23T10:30:00-05:00"
+            longitud: -79.889054321123
+            latitud: -2.189412345678
+            evento_tipo_id: 1
+            evento_subtipo_id: 4
+            evento_causa_id: 3
+            evento_origen_id: 2
+            evento_atencion_estado_id: 1
+            alto_impacto: false
+            descripcion: Desbordamiento reportado por la comunidad.
+            situacion: Se registra afectacion en viviendas cercanas al cauce.
+            activo: true
+            evento_id_redm: 0"""
+
     if table_name == "afectacion_variable_registros":
         required = "" if partial else """          required:
             - emergencia_id
