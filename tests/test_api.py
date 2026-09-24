@@ -68,6 +68,17 @@ class ApiTestCase(unittest.TestCase):
         self.assertIn("/api/institucion-categorias", paths)
         self.assertIn("/api/instituciones", paths)
         self.assertIn("/api/ubicaciones/importar", paths)
+        self.assertIn("/api/eventos/provincia/{provincia_id}", paths)
+        self.assertIn("/api/provincias/provincia/{provincia_id}", paths)
+        self.assertIn("/api/eventos/afectaciones/provincias", paths)
+        self.assertIn(
+            "provincia_id",
+            [parameter["name"] for parameter in paths["/api/eventos"]["get"]["parameters"]],
+        )
+        self.assertIn(
+            "provincia_id",
+            [parameter["name"] for parameter in paths["/api/provincias"]["get"]["parameters"]],
+        )
         self.assertNotIn("/api/riesgos", paths)
 
     def test_register_login_and_me(self):
@@ -241,6 +252,291 @@ class ApiTestCase(unittest.TestCase):
             headers=headers,
         )
         self.assertEqual(deleted.status_code, 204)
+
+    def test_list_provincias_by_provincia_id(self):
+        with self.app.app_context():
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO provincias (id, dpa, nombre)
+                    VALUES (13, '13', 'MANABI'), (9, '09', 'GUAYAS')
+                    """
+                )
+            )
+            db.session.commit()
+
+        token = self.register().get_json()["token"]
+        response = self.client.get(
+            "/api/provincias/provincia/13",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        provincias = response.get_json()
+        self.assertEqual(len(provincias), 1)
+        self.assertEqual(provincias[0]["id"], 13)
+        self.assertEqual(provincias[0]["nombre"], "MANABI")
+
+        filtered_list = self.client.get(
+            "/api/provincias?provincia_id=13",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(filtered_list.status_code, 200)
+        self.assertEqual(filtered_list.get_json(), provincias)
+
+    def test_list_eventos_by_provincia_id(self):
+        with self.app.app_context():
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE eventos (
+                        id INTEGER PRIMARY KEY,
+                        provincia_id INTEGER NOT NULL,
+                        sector VARCHAR(1000)
+                    )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO provincias (id, dpa, nombre)
+                    VALUES (13, '13', 'MANABI'), (9, '09', 'GUAYAS')
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO eventos (id, provincia_id, sector)
+                    VALUES (1, 13, 'Norte'), (2, 9, 'Sur'), (3, 13, 'Centro')
+                    """
+                )
+            )
+            db.session.commit()
+
+        token = self.register().get_json()["token"]
+        response = self.client.get(
+            "/api/eventos/provincia/13",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        eventos = response.get_json()
+        self.assertEqual([evento["id"] for evento in eventos], [1, 3])
+        self.assertEqual({evento["provincia_id"] for evento in eventos}, {13})
+        self.assertEqual(eventos[0]["provincia_nombre"], "MANABI")
+
+        filtered_list = self.client.get(
+            "/api/eventos?provincia_id=13",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(filtered_list.status_code, 200)
+        self.assertEqual(filtered_list.get_json(), eventos)
+
+    def test_list_event_affectations_summary_by_province(self):
+        with self.app.app_context():
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO provincias (id, dpa, nombre)
+                    VALUES
+                        (1, '01', 'AZUAY'),
+                        (9, '09', 'GUAYAS'),
+                        (13, '13', 'MANABI')
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE eventos (
+                        id INTEGER PRIMARY KEY,
+                        emergencia_id INTEGER NOT NULL,
+                        provincia_id INTEGER NOT NULL,
+                        canton_id INTEGER NOT NULL,
+                        evento_fecha TIMESTAMP NOT NULL,
+                        afectacion_variable_id INTEGER NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE afectacion_variables (
+                        id INTEGER PRIMARY KEY,
+                        nombre VARCHAR(255) NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO afectacion_variables (id, nombre)
+                    VALUES
+                        (1, 'Personas Fallecidas'),
+                        (2, 'Personas heridas'),
+                        (3, 'Personas afectadas'),
+                        (4, 'Viviendas afectadas'),
+                        (5, 'Viviendas destruidas'),
+                        (6, 'Recintos afectados'),
+                        (7, 'Puentes afectados'),
+                        (8, 'Metros lineales de vias afectadas'),
+                        (9, 'No debe salir'),
+                        (10, 'Familias afectadas'),
+                        (11, 'Recintos destruidos'),
+                        (12, 'Bien publico afectado'),
+                        (13, 'Bien publico destruido'),
+                        (14, 'Bien privado afectado'),
+                        (15, 'Bien privado destruido'),
+                        (16, 'Puentes destruidos'),
+                        (17, 'Vias de primer orden'),
+                        (18, 'Vias de segundo orden'),
+                        (19, 'Vias de tercer orden'),
+                        (20, 'Ha Cultivos afectados'),
+                        (21, 'Ha Cultivos perdidos'),
+                        (22, 'Animales afectados'),
+                        (23, 'Animales muertos')
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO eventos (
+                        id,
+                        emergencia_id,
+                        provincia_id,
+                        canton_id,
+                        evento_fecha,
+                        afectacion_variable_id
+                    )
+                    VALUES
+                        (1, 8, 13, 1301, '2025-11-16 08:00:00', 1),
+                        (2, 8, 13, 1301, '2025-11-16 09:00:00', 2),
+                        (3, 8, 13, 1301, '2025-11-16 10:00:00', 3),
+                        (4, 8, 13, 1301, '2025-11-16 11:00:00', 4),
+                        (5, 8, 13, 1301, '2025-11-16 12:00:00', 5),
+                        (6, 8, 13, 1301, '2025-11-16 13:00:00', 6),
+                        (7, 8, 13, 1301, '2025-11-16 14:00:00', 7),
+                        (8, 8, 13, 1301, '2025-11-16 15:00:00', 8),
+                        (9, 8, 13, 1301, '2025-11-16 16:00:00', 9),
+                        (10, 8, 13, 1301, '2025-11-16 17:00:00', 10),
+                        (11, 8, 13, 1301, '2025-11-16 18:00:00', 11),
+                        (12, 8, 13, 1301, '2025-11-16 19:00:00', 12),
+                        (13, 8, 13, 1301, '2025-11-16 20:00:00', 13),
+                        (14, 8, 13, 1301, '2025-11-16 21:00:00', 14),
+                        (15, 8, 13, 1301, '2025-11-16 22:00:00', 15),
+                        (16, 8, 13, 1301, '2025-11-16 23:00:00', 16),
+                        (17, 8, 13, 1301, '2025-11-16 23:01:00', 17),
+                        (18, 8, 13, 1301, '2025-11-16 23:02:00', 18),
+                        (19, 8, 13, 1301, '2025-11-16 23:03:00', 19),
+                        (20, 8, 13, 1301, '2025-11-16 23:04:00', 20),
+                        (21, 8, 13, 1301, '2025-11-16 23:05:00', 21),
+                        (22, 8, 13, 1301, '2025-11-16 23:06:00', 22),
+                        (23, 8, 13, 1301, '2025-11-16 23:07:00', 23),
+                        (24, 9, 13, 1301, '2025-11-18 11:00:00', 1),
+                        (25, 8, 9, 901, '2025-11-17 10:00:00', 6),
+                        (26, 8, 9, 901, '2025-11-17 11:00:00', 11),
+                        (27, 8, 9, 901, '2025-11-17 12:00:00', 1)
+                    """
+                )
+            )
+            db.session.commit()
+
+        token = self.register().get_json()["token"]
+        response = self.client.get(
+            "/api/eventos/afectaciones/provincias",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        summary = {row["provincia_id"]: row for row in response.get_json()}
+        self.assertEqual(summary[1]["evento"], 0)
+        self.assertEqual(summary[13]["provincia"], "MANABI")
+        self.assertEqual(summary[13]["evento"], 24)
+        self.assertEqual(summary[13]["personas_fallecidas"], 2)
+        self.assertEqual(summary[13]["personas_heridas"], 1)
+        self.assertEqual(summary[13]["personas_afectadas"], 1)
+        self.assertEqual(summary[13]["viviendas_afectadas"], 1)
+        self.assertEqual(summary[13]["viviendas_destruidas"], 1)
+        self.assertEqual(summary[13]["recintos_electorales_afectados"], 1)
+        self.assertEqual(summary[13]["recintos_electorales_destruidos"], 1)
+        self.assertEqual(summary[13]["familias_afectadas"], 1)
+        self.assertEqual(summary[13]["bien_publico_afectado"], 1)
+        self.assertEqual(summary[13]["bien_publico_destruido"], 1)
+        self.assertEqual(summary[13]["bien_privado_afectado"], 1)
+        self.assertEqual(summary[13]["bien_privado_destruido"], 1)
+        self.assertEqual(summary[13]["puentes_afectados"], 1)
+        self.assertEqual(summary[13]["puentes_destruidos"], 1)
+        self.assertEqual(summary[13]["vias_primer_orden"], 1)
+        self.assertEqual(summary[13]["vias_segundo_orden"], 1)
+        self.assertEqual(summary[13]["vias_tercer_orden"], 1)
+        self.assertEqual(summary[13]["metros_lineales_vias_afectadas"], 1)
+        self.assertEqual(summary[13]["hectareas_cultivos_afectados"], 1)
+        self.assertEqual(summary[13]["hectareas_cultivos_perdidos"], 1)
+        self.assertEqual(summary[13]["animales_afectados"], 1)
+        self.assertEqual(summary[13]["animales_muertos"], 1)
+        self.assertEqual(summary[9]["personas_fallecidas"], 1)
+        self.assertEqual(summary[9]["recintos_electorales_afectados"], 1)
+        self.assertEqual(summary[9]["recintos_electorales_destruidos"], 1)
+
+        filtered = self.client.get(
+            "/api/eventos/afectaciones/provincias?emergencia_id=8",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(filtered.status_code, 200)
+        filtered_summary = {row["provincia_id"]: row for row in filtered.get_json()}
+        self.assertEqual(filtered_summary[13]["evento"], 23)
+        self.assertEqual(filtered_summary[13]["personas_fallecidas"], 1)
+        self.assertEqual(filtered_summary[9]["evento"], 3)
+
+        filtered_by_province = self.client.get(
+            "/api/eventos/afectaciones/provincias?provincia_id=13",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(filtered_by_province.status_code, 200)
+        province_rows = filtered_by_province.get_json()
+        self.assertEqual(len(province_rows), 1)
+        self.assertEqual(province_rows[0]["provincia_id"], 13)
+        self.assertEqual(province_rows[0]["evento"], 24)
+
+        filtered_by_guayas = self.client.get(
+            "/api/eventos/afectaciones/provincias?provincia_id=9",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(filtered_by_guayas.status_code, 200)
+        guayas_rows = filtered_by_guayas.get_json()
+        self.assertEqual(len(guayas_rows), 1)
+        self.assertEqual(guayas_rows[0]["provincia"], "GUAYAS")
+        self.assertEqual(guayas_rows[0]["recintos_electorales_afectados"], 1)
+        self.assertEqual(guayas_rows[0]["recintos_electorales_destruidos"], 1)
+
+        filtered_by_canton = self.client.get(
+            "/api/eventos/afectaciones/provincias?canton_id=1301",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(filtered_by_canton.status_code, 200)
+        canton_summary = {row["provincia_id"]: row for row in filtered_by_canton.get_json()}
+        self.assertEqual(canton_summary[13]["evento"], 24)
+        self.assertEqual(canton_summary[13]["personas_fallecidas"], 2)
+
+        filtered_by_date = self.client.get(
+            "/api/eventos/afectaciones/provincias?fecha_inicio=2025-11-16&fecha_fin=2025-11-16",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(filtered_by_date.status_code, 200)
+        date_summary = {row["provincia_id"]: row for row in filtered_by_date.get_json()}
+        self.assertEqual(date_summary[13]["evento"], 23)
+        self.assertEqual(date_summary[13]["personas_fallecidas"], 1)
+        self.assertEqual(date_summary[13]["personas_heridas"], 1)
 
     def test_import_dpa_replaces_hierarchy_and_restarts_ids(self):
         csv_content = """COD_PROVINCIA;NOMBRE_PROVINCIA;COD_CANTON;NOMBRE_CANTON;COD_PARROQUIA;NOMBRE_PARROQUIA;COD_ZONA;NOMBRE_ZONA;Total_Recintos

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -81,6 +83,119 @@ EVENT_LOOKUPS = (
     ),
 )
 
+AFFECTATION_SUMMARY_COLUMNS = (
+    (
+        "personas_fallecidas",
+        "Personas Fallecidas",
+        ("persona", "fallecid"),
+    ),
+    (
+        "personas_heridas",
+        "Personas Heridas",
+        ("persona", "herid"),
+    ),
+    (
+        "personas_afectadas",
+        "Personas Afectadas",
+        ("persona", "afectad"),
+    ),
+    (
+        "familias_afectadas",
+        "Familias afectadas",
+        ("familia", "afectad"),
+    ),
+    (
+        "viviendas_afectadas",
+        "Viviendas Afectadas",
+        ("vivienda", "afectad"),
+    ),
+    (
+        "viviendas_destruidas",
+        "Viviendas Destruidas",
+        ("vivienda", "destruid"),
+    ),
+    (
+        "recintos_electorales_afectados",
+        "Recintos electorales Afectados",
+        ("recinto", "afectad"),
+    ),
+    (
+        "recintos_electorales_destruidos",
+        "Recintos electorales Destruidos",
+        ("recinto", "destruid"),
+    ),
+    (
+        "bien_publico_afectado",
+        "Bien publico afectado",
+        ("bien", "public", "afectad"),
+    ),
+    (
+        "bien_publico_destruido",
+        "Bien publico destruido",
+        ("bien", "public", "destruid"),
+    ),
+    (
+        "bien_privado_afectado",
+        "Bien privado afectado",
+        ("bien", "privad", "afectad"),
+    ),
+    (
+        "bien_privado_destruido",
+        "Bien privado destruido",
+        ("bien", "privad", "destruid"),
+    ),
+    (
+        "puentes_afectados",
+        "Puentes Afectados",
+        ("puente", "afectad"),
+    ),
+    (
+        "puentes_destruidos",
+        "Puentes Destruidos",
+        ("puente", "destruid"),
+    ),
+    (
+        "vias_primer_orden",
+        "Vias de primer orden (m)",
+        ("via", "primer"),
+    ),
+    (
+        "vias_segundo_orden",
+        "Vias de segundo orden (m)",
+        ("via", "segund"),
+    ),
+    (
+        "vias_tercer_orden",
+        "Vias de tercer orden (m)",
+        ("via", "tercer"),
+    ),
+    (
+        "metros_lineales_vias_afectadas",
+        "Metros lineales de vias Afectadas",
+        ("metro", "lineal", "via", "afectad"),
+    ),
+    (
+        "hectareas_cultivos_afectados",
+        "Ha Cultivos afectados",
+        ("cultivo", "afectad"),
+    ),
+    (
+        "hectareas_cultivos_perdidos",
+        "Ha Cultivos perdidos",
+        ("cultivo", "perdid"),
+    ),
+    (
+        "animales_afectados",
+        "Animales afectados",
+        ("animal", "afectad"),
+    ),
+    (
+        "animales_muertos",
+        "Animales muertos",
+        ("animal", "muert"),
+    ),
+)
+
 
 def _table_cache() -> dict[str, Table]:
     return current_app.extensions.setdefault("reflected_tables", {})
@@ -120,8 +235,58 @@ def _row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
     return {key: _json_value(value) for key, value in row.items()}
 
 
+def _summary_number(value: Any) -> int | float:
+    if value is None:
+        return 0
+    if isinstance(value, Decimal):
+        if value == value.to_integral_value():
+            return int(value)
+        return float(value)
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _normalize_summary_text(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", " ", ascii_text.lower()).strip()
+
+
+def _affectation_summary_key(variable_name: Any) -> str | None:
+    normalized_name = _normalize_summary_text(variable_name)
+    for key, _label, tokens in AFFECTATION_SUMMARY_COLUMNS:
+        if all(token in normalized_name for token in tokens):
+            return key
+    return None
+
+
 def _missing_columns(table: Table, *column_names: str) -> list[str]:
     return [column_name for column_name in column_names if column_name not in table.c]
+
+
+def _integer_query_arg(name: str) -> tuple[int | None, Any]:
+    raw_value = request.args.get(name)
+    if raw_value is None:
+        return None, None
+    try:
+        return int(raw_value), None
+    except (TypeError, ValueError):
+        return None, (jsonify(error=f"{name} debe ser entero"), 400)
+
+
+def _date_query_arg(name: str, *, end_of_day: bool = False) -> tuple[datetime | None, Any]:
+    raw_value = request.args.get(name)
+    if raw_value is None:
+        return None, None
+    try:
+        if "T" in raw_value or " " in raw_value:
+            return _parse_datetime(raw_value), None
+        parsed_date = _parse_date(raw_value)
+        boundary = datetime.max.time() if end_of_day else datetime.min.time()
+        return datetime.combine(parsed_date, boundary), None
+    except (TypeError, ValueError):
+        return None, (jsonify(error=f"{name} debe ser fecha ISO 8601"), 400)
 
 
 def _affectation_variable_scope_filters(
@@ -329,9 +494,26 @@ def _make_list(table_name: str, label: str):
     @jwt_required
     def list_items():
         table = _get_table(table_name)
+        statement = select(table)
+        if table_name == "provincias":
+            provincia_id, error_response = _integer_query_arg("provincia_id")
+            if error_response is not None:
+                return error_response
+            if provincia_id is not None:
+                statement = statement.where(table.c.id == provincia_id)
         order_column = table.c.id if "id" in table.c else next(iter(table.c))
-        rows = db.session.execute(select(table).order_by(order_column)).mappings().all()
+        rows = db.session.execute(statement.order_by(order_column)).mappings().all()
         return jsonify([_row_to_dict(dict(row)) for row in rows])
+
+    parameters_doc = ""
+    if table_name == "provincias":
+        parameters_doc = """    parameters:
+      - in: query
+        name: provincia_id
+        type: integer
+        required: false
+        description: Identificador de la provincia para filtrar el listado
+"""
 
     list_items.__name__ = f"list_{table_name}"
     list_items.__doc__ = f"""Listar {label}
@@ -339,7 +521,7 @@ def _make_list(table_name: str, label: str):
     tags: [{label}]
     security:
       - Bearer: []
-    responses:
+{parameters_doc}    responses:
       200:
         description: Lista de registros
     """
@@ -374,6 +556,15 @@ def _make_list_events_with_relations():
     @jwt_required
     def list_events_with_relations():
         events, statement = _select_events_with_relations()
+        provincia_id, error_response = _integer_query_arg("provincia_id")
+        if error_response is not None:
+            return error_response
+        if provincia_id is not None:
+            provincia_column = events.c.get("provincia_id")
+            if provincia_column is None:
+                current_app.logger.error("eventos no tiene la columna provincia_id")
+                return jsonify(error="La tabla eventos no tiene la columna provincia_id"), 500
+            statement = statement.where(provincia_column == provincia_id)
         order_column = events.c.id if "id" in events.c else next(iter(events.c))
         rows = db.session.execute(statement.order_by(order_column)).mappings().all()
         return jsonify([_row_to_dict(dict(row)) for row in rows])
@@ -384,11 +575,260 @@ def _make_list_events_with_relations():
     tags: [Eventos]
     security:
       - Bearer: []
+    parameters:
+      - in: query
+        name: provincia_id
+        type: integer
+        required: false
+        description: Identificador de la provincia para filtrar el listado
     responses:
       200:
         description: Eventos con IDs, nombres y descripciones de sus catálogos relacionados
     """
     return list_events_with_relations
+
+
+def _make_list_events_by_province():
+    @jwt_required
+    def list_events_by_province(provincia_id: int):
+        events, statement = _select_events_with_relations()
+        provincia_column = events.c.get("provincia_id")
+        if provincia_column is None:
+            current_app.logger.error("eventos no tiene la columna provincia_id")
+            return jsonify(error="La tabla eventos no tiene la columna provincia_id"), 500
+
+        order_column = events.c.id if "id" in events.c else next(iter(events.c))
+        rows = db.session.execute(
+            statement.where(provincia_column == provincia_id).order_by(order_column)
+        ).mappings().all()
+        return jsonify([_row_to_dict(dict(row)) for row in rows])
+
+    list_events_by_province.__name__ = "list_events_by_province"
+    list_events_by_province.__doc__ = """Listar eventos por provincia
+    ---
+    tags: [Eventos]
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: provincia_id
+        type: integer
+        required: true
+        description: Identificador de la provincia
+    responses:
+      200:
+        description: Eventos de la provincia con datos relacionados
+      401:
+        description: Token ausente o invalido
+    """
+    return list_events_by_province
+
+
+def _make_list_provinces_by_id():
+    @jwt_required
+    def list_provinces_by_id(provincia_id: int):
+        table = _get_table("provincias")
+        provincia_column = table.c.get("id")
+        if provincia_column is None:
+            current_app.logger.error("provincias no tiene la columna id")
+            return jsonify(error="La tabla provincias no tiene la columna id"), 500
+
+        order_column = table.c.id if "id" in table.c else next(iter(table.c))
+        rows = db.session.execute(
+            select(table)
+            .where(provincia_column == provincia_id)
+            .order_by(order_column)
+        ).mappings().all()
+        return jsonify([_row_to_dict(dict(row)) for row in rows])
+
+    list_provinces_by_id.__name__ = "list_provinces_by_id"
+    list_provinces_by_id.__doc__ = """Listar provincias por provincia_id
+    ---
+    tags: [Provincias]
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: provincia_id
+        type: integer
+        required: true
+        description: Identificador de la provincia
+    responses:
+      200:
+        description: Lista con la provincia solicitada
+      401:
+        description: Token ausente o invalido
+    """
+    return list_provinces_by_id
+
+
+def _make_list_event_affectations_summary_by_province():
+    @jwt_required
+    def list_event_affectations_summary_by_province():
+        """Resumen de eventos y afectaciones por provincia
+        ---
+        tags: [Eventos]
+        security:
+          - Bearer: []
+        parameters:
+          - in: query
+            name: emergencia_id
+            type: integer
+            required: false
+            description: Identificador de emergencia para filtrar el resumen
+          - in: query
+            name: provincia_id
+            type: integer
+            required: false
+            description: Identificador de provincia para devolver solo esa provincia
+          - in: query
+            name: canton_id
+            type: integer
+            required: false
+            description: Identificador de canton para filtrar eventos y afectaciones
+          - in: query
+            name: fecha_inicio
+            type: string
+            format: date
+            required: false
+            description: Fecha inicial del evento en formato YYYY-MM-DD
+          - in: query
+            name: fecha_fin
+            type: string
+            format: date
+            required: false
+            description: Fecha final del evento en formato YYYY-MM-DD
+        responses:
+          200:
+            description: Conteo de eventos y afectaciones agrupadas por provincia
+          401:
+            description: Token ausente o invalido
+        """
+        emergencia_id, error_response = _integer_query_arg("emergencia_id")
+        if error_response is not None:
+            return error_response
+
+        provincia_id, error_response = _integer_query_arg("provincia_id")
+        if error_response is not None:
+            return error_response
+
+        canton_id, error_response = _integer_query_arg("canton_id")
+        if error_response is not None:
+            return error_response
+
+        fecha_inicio, error_response = _date_query_arg("fecha_inicio")
+        if error_response is not None:
+            return error_response
+
+        fecha_fin, error_response = _date_query_arg("fecha_fin", end_of_day=True)
+        if error_response is not None:
+            return error_response
+
+        provinces = _get_table("provincias")
+        events = _get_table("eventos")
+        variables = _get_first_existing_table("afectacion_variables")
+        if variables is None:
+            return jsonify(
+                error="Esquema incompleto",
+                detalles={"afectacion_variables": ["Tabla no encontrada"]},
+            ), 500
+
+        required = {
+            "provincias": _missing_columns(provinces, "id", "nombre"),
+            "eventos": _missing_columns(
+                events, "id", "provincia_id", "afectacion_variable_id"
+            ),
+            "afectacion_variables": _missing_columns(variables, "id", "nombre"),
+        }
+        if emergencia_id is not None:
+            required["eventos"].extend(_missing_columns(events, "emergencia_id"))
+        if canton_id is not None:
+            required["eventos"].extend(_missing_columns(events, "canton_id"))
+        event_date_column = events.c.get("evento_fecha")
+        if (fecha_inicio is not None or fecha_fin is not None) and event_date_column is None:
+            required["eventos"].append("evento_fecha")
+
+        missing = {
+            table_name: columns
+            for table_name, columns in required.items()
+            if columns
+        }
+        if missing:
+            return jsonify(error="Esquema incompleto", detalles=missing), 500
+
+        event_join_conditions = [events.c.provincia_id == provinces.c.id]
+        event_filters = []
+        if emergencia_id is not None:
+            event_filters.append(events.c.emergencia_id == emergencia_id)
+        if provincia_id is not None:
+            event_filters.append(events.c.provincia_id == provincia_id)
+        if canton_id is not None:
+            event_filters.append(events.c.canton_id == canton_id)
+        if fecha_inicio is not None and event_date_column is not None:
+            event_filters.append(event_date_column >= fecha_inicio)
+        if fecha_fin is not None and event_date_column is not None:
+            event_filters.append(event_date_column <= fecha_fin)
+        event_join_conditions.extend(event_filters)
+
+        event_count_statement = (
+            select(
+                provinces.c.id.label("provincia_id"),
+                provinces.c.nombre.label("provincia"),
+                db.func.count(events.c.id).label("evento"),
+            )
+            .select_from(provinces.outerjoin(events, and_(*event_join_conditions)))
+            .group_by(provinces.c.id, provinces.c.nombre)
+            .order_by(provinces.c.nombre)
+        )
+        if provincia_id is not None:
+            event_count_statement = event_count_statement.where(
+                provinces.c.id == provincia_id
+            )
+
+        event_counts = db.session.execute(event_count_statement).mappings().all()
+
+        summary_by_province = {}
+        for row in event_counts:
+            summary = {
+                "provincia_id": row["provincia_id"],
+                "provincia": row["provincia"],
+                "evento": _summary_number(row["evento"]),
+            }
+            for key, _label, _tokens in AFFECTATION_SUMMARY_COLUMNS:
+                summary[key] = 0
+            summary_by_province[row["provincia_id"]] = summary
+
+        if variables is not None:
+            affectation_totals = db.session.execute(
+                select(
+                    events.c.provincia_id.label("provincia_id"),
+                    variables.c.nombre.label("variable_nombre"),
+                    db.func.count(events.c.id).label("total"),
+                )
+                .select_from(
+                    events.join(
+                        variables,
+                        events.c.afectacion_variable_id == variables.c.id,
+                    )
+                )
+                .where(*event_filters)
+                .group_by(events.c.provincia_id, variables.c.nombre)
+            ).mappings().all()
+
+            for row in affectation_totals:
+                summary = summary_by_province.get(row["provincia_id"])
+                if summary is None:
+                    continue
+                key = _affectation_summary_key(row["variable_nombre"])
+                if key is not None:
+                    summary[key] += _summary_number(row["total"])
+
+        return jsonify(list(summary_by_province.values()))
+
+    list_event_affectations_summary_by_province.__name__ = (
+        "list_event_affectations_summary_by_province"
+    )
+    return list_event_affectations_summary_by_province
 
 
 def _make_get_event_with_relations():
@@ -1227,6 +1667,26 @@ for slug, table_name, label in RESOURCES:
         view_func=_make_create(table_name, label),
         methods=["POST"],
     )
+    if table_name == "provincias":
+        generic_resources_bp.add_url_rule(
+            f"/{slug}/provincia/<int:provincia_id>",
+            endpoint="provincias_by_provincia",
+            view_func=_make_list_provinces_by_id(),
+            methods=["GET"],
+        )
+    if table_name == "eventos":
+        generic_resources_bp.add_url_rule(
+            f"/{slug}/provincia/<int:provincia_id>",
+            endpoint="eventos_by_provincia",
+            view_func=_make_list_events_by_province(),
+            methods=["GET"],
+        )
+        generic_resources_bp.add_url_rule(
+            f"/{slug}/afectaciones/provincias",
+            endpoint="eventos_afectaciones_by_provincia",
+            view_func=_make_list_event_affectations_summary_by_province(),
+            methods=["GET"],
+        )
     generic_resources_bp.add_url_rule(
         f"/{slug}/<int:item_id>",
         endpoint=f"{table_name}_get",
