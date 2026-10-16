@@ -187,7 +187,6 @@ def get_datos_login(usuario_id: int):
         "public.coes",
         "public.mesas",
         "public.mesa_grupos",
-        "public.emergencias",
     )
     existing_tables = set(
         db.session.execute(
@@ -215,7 +214,6 @@ def get_datos_login(usuario_id: int):
             "mesa_siglas": None,
             "mesa_grupo_id": None,
             "mesa_grupo_nombre": None,
-            "emergencia_id": None,
         })
 
     query = text("""
@@ -235,8 +233,7 @@ def get_datos_login(usuario_id: int):
                m.nombre AS mesa_nombre,
                m.siglas AS mesa_siglas,
                g.id AS mesa_grupo_id,
-               g.nombre AS mesa_grupo_nombre,
-               e.id AS emergencia_id
+               g.nombre AS mesa_grupo_nombre
         FROM public.usuarios u
         INNER JOIN public.usuario_perfil_coe_dpa_mesa ux ON u.id = ux.usuario_id
         LEFT JOIN public.perfiles pf ON ux.perfil_id = pf.id
@@ -245,7 +242,6 @@ def get_datos_login(usuario_id: int):
         LEFT JOIN public.cantones k ON ux.provincia_id = k.provincia_id AND ux.canton_id = k.id
         LEFT JOIN public.mesas m ON ux.mesa_id = m.id
         LEFT JOIN public.mesa_grupos g ON m.mesa_grupo_id = g.id
-        LEFT JOIN public.emergencias e ON ux.emergencia_id = e.id
         WHERE u.id = :usuario_id
           AND COALESCE(u.activo, TRUE) = TRUE
           AND COALESCE(ux.activo, TRUE) = TRUE

@@ -126,7 +126,8 @@ CREATE TABLE IF NOT EXISTS public.emergencias (
     modificador VARCHAR(100),
     modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     evento_tipo_id INTEGER,
-    dashboard TEXT
+    dashboard TEXT,
+    logo VARCHAR(100)
 );
 
 CREATE TABLE IF NOT EXISTS public.infraestructura_tipos (

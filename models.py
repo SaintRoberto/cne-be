@@ -200,13 +200,27 @@ class Emergencia(db.Model):
     fecha_inicio = db.Column(db.DateTime, nullable=True)
     fecha_fin = db.Column(db.DateTime, nullable=True)
     etapa_id = db.Column(db.Integer, nullable=True)
-    provincias_impactadas = db.Column(db.Integer, nullable=True)
-    cantones_impactados = db.Column(db.Integer, nullable=True)
-    parroquias_impactadas = db.Column(db.Integer, nullable=True)
-    eventos_adversos = db.Column(db.Integer, nullable=True)
-    declaratorias_emergencia = db.Column(db.Integer, nullable=True)
-    declaratorias_desastre = db.Column(db.Integer, nullable=True)
-    declaratorias_catastrofe = db.Column(db.Integer, nullable=True)
+    provincias_impactadas = db.Column(
+        db.Integer, nullable=True, default=0, server_default="0"
+    )
+    cantones_impactados = db.Column(
+        db.Integer, nullable=True, default=0, server_default="0"
+    )
+    parroquias_impactadas = db.Column(
+        db.Integer, nullable=True, default=0, server_default="0"
+    )
+    eventos_adversos = db.Column(
+        db.Integer, nullable=True, default=0, server_default="0"
+    )
+    declaratorias_emergencia = db.Column(
+        db.Integer, nullable=True, default=0, server_default="0"
+    )
+    declaratorias_desastre = db.Column(
+        db.Integer, nullable=True, default=0, server_default="0"
+    )
+    declaratorias_catastrofe = db.Column(
+        db.Integer, nullable=True, default=0, server_default="0"
+    )
     costo_estimado_danos = db.Column(db.Numeric(12, 2), nullable=True)
     activo = db.Column(
         db.Boolean, nullable=True, default=True, server_default=db.text("true")
@@ -228,6 +242,7 @@ class Emergencia(db.Model):
     )
     evento_tipo_id = db.Column(db.Integer, nullable=True)
     dashboard = db.Column(db.Text, nullable=True)
+    logo = db.Column(db.String(100), nullable=True)
 
 
 class InfraestructuraTipo(db.Model):

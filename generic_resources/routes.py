@@ -15,8 +15,11 @@ from sqlalchemy import (
     Table,
     Time,
     and_,
+    case,
+    func,
     inspect,
     literal,
+    or_,
     select,
     true,
 )
@@ -42,6 +45,7 @@ RESOURCES = [
     ("evento-origenes", "evento_origenes", "Origenes de evento"),
     ("evento-subtipos", "evento_subtipos", "Subtipos de evento"),
     ("evento-tipos", "evento_tipos", "Tipos de evento"),
+    ("emergencias", "emergencias", "Emergencias"),
     ("eventos", "eventos", "Eventos"),
     ("infraestructura-tipos", "infraestructura_tipos", "Tipos de infraestructura"),
     ("infraestructuras", "infraestructuras", "Infraestructuras"),
@@ -495,26 +499,35 @@ def _make_list(table_name: str, label: str):
     def list_items():
         table = _get_table(table_name)
         statement = select(table)
-        if table_name == "provincias":
-            provincia_id, error_response = _integer_query_arg("provincia_id")
+        if table_name == "emergencias":
+            statement = statement.where(table.c.activo == true())
+        filter_name = {"provincias": "provincia_id"}.get(table_name)
+        if filter_name is not None:
+            item_id, error_response = _integer_query_arg(filter_name)
             if error_response is not None:
                 return error_response
-            if provincia_id is not None:
-                statement = statement.where(table.c.id == provincia_id)
+            if item_id is not None:
+                statement = statement.where(table.c.id == item_id)
         order_column = table.c.id if "id" in table.c else next(iter(table.c))
         rows = db.session.execute(statement.order_by(order_column)).mappings().all()
         return jsonify([_row_to_dict(dict(row)) for row in rows])
 
     parameters_doc = ""
-    if table_name == "provincias":
+    filter_name = {"provincias": "provincia_id"}.get(table_name)
+    if filter_name is not None:
         parameters_doc = """    parameters:
       - in: query
-        name: provincia_id
+        name: {filter_name}
         type: integer
         required: false
-        description: Identificador de la provincia para filtrar el listado
-"""
+        description: Identificador para filtrar el listado
+""".format(filter_name=filter_name)
 
+    response_description = (
+        "Lista de emergencias activas"
+        if table_name == "emergencias"
+        else "Lista de registros"
+    )
     list_items.__name__ = f"list_{table_name}"
     list_items.__doc__ = f"""Listar {label}
     ---
@@ -523,7 +536,7 @@ def _make_list(table_name: str, label: str):
       - Bearer: []
 {parameters_doc}    responses:
       200:
-        description: Lista de registros
+        description: {response_description}
     """
     return list_items
 
@@ -660,6 +673,78 @@ def _make_list_provinces_by_id():
         description: Token ausente o invalido
     """
     return list_provinces_by_id
+
+
+def _make_list_current_emergencies_by_user():
+    @jwt_required
+    def list_current_emergencies_by_user(usuario: str):
+        users = _get_table("usuarios")
+        assignments = _get_table("usuario_perfil_coe_dpa_mesa")
+        emergencies = _get_table("emergencias")
+
+        scope = case(
+            (
+                and_(
+                    assignments.c.provincia_id == 0,
+                    assignments.c.canton_id == 0,
+                ),
+                "NACIONAL",
+            ),
+            (assignments.c.canton_id == 0, "PROVINCIAL"),
+            else_="CANTONAL",
+        ).label("ambito")
+
+        statement = (
+            select(
+                emergencies.c.id.label("emergencia_id"),
+                emergencies.c.nombre.label("emergencia"),
+                users.c.usuario,
+                users.c.descripcion,
+                emergencies.c.dashboard,
+                scope,
+            )
+            .select_from(
+                users.outerjoin(
+                    assignments,
+                    assignments.c.usuario_id == users.c.id,
+                ).join(emergencies, emergencies.c.id != 0)
+            )
+            .where(
+                users.c.usuario == usuario,
+                emergencies.c.activo == true(),
+                emergencies.c.fecha_inicio <= func.now(),
+                or_(
+                    emergencies.c.fecha_fin.is_(None),
+                    emergencies.c.fecha_fin >= func.now(),
+                ),
+            )
+            .distinct()
+            .order_by(emergencies.c.nombre, users.c.descripcion)
+        )
+        rows = db.session.execute(statement).mappings().all()
+        return jsonify([_row_to_dict(dict(row)) for row in rows])
+
+    list_current_emergencies_by_user.__name__ = (
+        "list_current_emergencies_by_user"
+    )
+    list_current_emergencies_by_user.__doc__ = """Listar emergencias vigentes por usuario
+    ---
+    tags: [Emergencias]
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: usuario
+        type: string
+        required: true
+        description: Nombre de usuario
+    responses:
+      200:
+        description: Emergencias activas y vigentes disponibles para el usuario
+      401:
+        description: Token ausente o invalido
+    """
+    return list_current_emergencies_by_user
 
 
 def _make_list_event_affectations_summary_by_province():
@@ -1287,6 +1372,74 @@ def _make_list_affectation_records_by_event():
 
 
 def _request_schema_doc(table_name: str, *, partial: bool) -> str:
+    if table_name == "emergencias":
+        required = "" if partial else """          required:
+            - nombre
+"""
+        return f"""          type: object
+{required}          properties:
+            nombre:
+              type: string
+              example: Proceso Electoral 2027
+            antecedentes:
+              type: string
+            situacion_actual:
+              type: string
+            nivel_afectacion_id:
+              type: integer
+            nivel_alerta_id:
+              type: integer
+            fecha_inicio:
+              type: string
+              format: date-time
+            fecha_fin:
+              type: string
+              format: date-time
+            etapa_id:
+              type: integer
+            provincias_impactadas:
+              type: integer
+              default: 0
+            cantones_impactados:
+              type: integer
+              default: 0
+            parroquias_impactadas:
+              type: integer
+              default: 0
+            eventos_adversos:
+              type: integer
+              default: 0
+            declaratorias_emergencia:
+              type: integer
+              default: 0
+            declaratorias_desastre:
+              type: integer
+              default: 0
+            declaratorias_catastrofe:
+              type: integer
+              default: 0
+            costo_estimado_danos:
+              type: number
+              format: double
+            activo:
+              type: boolean
+              default: true
+            evento_tipo_id:
+              type: integer
+            dashboard:
+              type: string
+            logo:
+              type: string
+              maxLength: 100
+          example:
+            nombre: Proceso Electoral 2027
+            antecedentes: Antecedentes de la emergencia
+            situacion_actual: En seguimiento
+            fecha_inicio: "2026-10-15T08:30:00"
+            provincias_impactadas: 0
+            logo: emergencia-2027.png
+            activo: true"""
+
     if table_name == "eventos":
         required = "" if partial else """          required:
             - emergencia_id
@@ -1709,6 +1862,13 @@ for slug, table_name, label in RESOURCES:
         view_func=_make_delete(table_name, label),
         methods=["DELETE"],
     )
+
+generic_resources_bp.add_url_rule(
+    "/emergencias/usuario/<string:usuario>",
+    endpoint="emergencias_vigentes_by_usuario",
+    view_func=_make_list_current_emergencies_by_user(),
+    methods=["GET"],
+)
 
 generic_resources_bp.add_url_rule(
     "/evento-subtipos/tipo-evento/<int:tipo_evento_id>",

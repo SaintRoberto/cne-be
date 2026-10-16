@@ -119,8 +119,14 @@ Recursos disponibles:
 `provincias`, `cantones`, `parroquias`, `zonas`, `evento-atencion-estados`,
 `evento-categorias`, `evento-causas`, `evento-clases`, `evento-estados`,
 `evento-fenomenos`, `evento-origenes`, `evento-subtipos`, `evento-tipos`,
-`eventos`, `infraestructura-tipos`, `infraestructuras`,
+`emergencias`, `eventos`, `infraestructura-tipos`, `infraestructuras`,
 `afectacion-variable-registros` y `afectacion-variable-registro-detalles`.
+
+`GET /api/emergencias` devuelve únicamente las emergencias activas. La consulta
+individual `GET /api/emergencias/{id}` se mantiene como parte del CRUD.
+`GET /api/emergencias/usuario/{usuario}` devuelve las emergencias activas que ya
+iniciaron y cuya fecha de fin aún no llegó o no está definida, junto con el
+ámbito del usuario.
 
 ### ImportaciÃ³n del maestro DPA
 

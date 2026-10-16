@@ -70,7 +70,19 @@ class ApiTestCase(unittest.TestCase):
         self.assertIn("/api/ubicaciones/importar", paths)
         self.assertIn("/api/eventos/provincia/{provincia_id}", paths)
         self.assertIn("/api/provincias/provincia/{provincia_id}", paths)
+        self.assertIn("/api/emergencias", paths)
+        self.assertIn("/api/emergencias/{item_id}", paths)
+        self.assertIn("/api/emergencias/usuario/{usuario}", paths)
+        self.assertNotIn("/api/emergencias/emergencia/{emergencia_id}", paths)
         self.assertIn("/api/eventos/afectaciones/provincias", paths)
+        emergencia_schema = paths["/api/emergencias"]["post"]["parameters"][0][
+            "schema"
+        ]
+        self.assertEqual(emergencia_schema["required"], ["nombre"])
+        self.assertIn("dashboard", emergencia_schema["properties"])
+        self.assertEqual(
+            emergencia_schema["properties"]["logo"]["maxLength"], 100
+        )
         self.assertIn(
             "provincia_id",
             [parameter["name"] for parameter in paths["/api/eventos"]["get"]["parameters"]],
@@ -283,6 +295,147 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(filtered_list.status_code, 200)
         self.assertEqual(filtered_list.get_json(), provincias)
+
+    def test_emergencias_crud_and_list_only_active(self):
+        token = self.register().get_json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        unauthorized = self.client.get("/api/emergencias")
+        self.assertEqual(unauthorized.status_code, 401)
+
+        created = self.client.post(
+            "/api/emergencias",
+            headers=headers,
+            json={
+                "nombre": "Proceso Electoral 2027",
+                "antecedentes": "Prueba de antecedentes",
+                "nivel_afectacion_id": 2,
+                "fecha_inicio": "2026-10-15T08:30:00",
+                "costo_estimado_danos": 1250.50,
+                "evento_tipo_id": 3,
+                "dashboard": "https://example.test/dashboard",
+                "logo": "emergencia-2027.png",
+            },
+        )
+        self.assertEqual(created.status_code, 201)
+        emergencia = created.get_json()
+        self.assertEqual(emergencia["nombre"], "Proceso Electoral 2027")
+        self.assertEqual(emergencia["provincias_impactadas"], 0)
+        self.assertEqual(emergencia["logo"], "emergencia-2027.png")
+        self.assertEqual(emergencia["creador"], "admin")
+
+        inactive_created = self.client.post(
+            "/api/emergencias",
+            headers=headers,
+            json={"nombre": "Emergencia inactiva", "activo": False},
+        )
+        self.assertEqual(inactive_created.status_code, 201)
+        inactive_emergencia = inactive_created.get_json()
+
+        listed = self.client.get("/api/emergencias", headers=headers)
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual([item["id"] for item in listed.get_json()], [emergencia["id"]])
+
+        detail = self.client.get(
+            f"/api/emergencias/{emergencia['id']}", headers=headers
+        )
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.get_json()["id"], emergencia["id"])
+
+        updated = self.client.put(
+            f"/api/emergencias/{emergencia['id']}",
+            headers=headers,
+            json={
+                "situacion_actual": "En seguimiento",
+                "activo": False,
+                "logo": "emergencia-actualizada.png",
+            },
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.get_json()["situacion_actual"], "En seguimiento")
+        self.assertFalse(updated.get_json()["activo"])
+        self.assertEqual(updated.get_json()["logo"], "emergencia-actualizada.png")
+        self.assertEqual(updated.get_json()["modificador"], "admin")
+
+        listed_after_deactivation = self.client.get("/api/emergencias", headers=headers)
+        self.assertEqual(listed_after_deactivation.status_code, 200)
+        self.assertEqual(listed_after_deactivation.get_json(), [])
+
+        deleted = self.client.delete(
+            f"/api/emergencias/{emergencia['id']}", headers=headers
+        )
+        self.assertEqual(deleted.status_code, 204)
+        inactive_deleted = self.client.delete(
+            f"/api/emergencias/{inactive_emergencia['id']}", headers=headers
+        )
+        self.assertEqual(inactive_deleted.status_code, 204)
+        missing = self.client.get(
+            f"/api/emergencias/{emergencia['id']}", headers=headers
+        )
+        self.assertEqual(missing.status_code, 404)
+
+    def test_list_current_emergencies_by_username(self):
+        registered = self.register().get_json()
+        headers = {"Authorization": f"Bearer {registered['token']}"}
+        usuario_id = registered["usuario"]["id"]
+
+        with self.app.app_context():
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE usuario_perfil_coe_dpa_mesa (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        usuario_id INTEGER NOT NULL,
+                        provincia_id INTEGER NOT NULL,
+                        canton_id INTEGER NOT NULL,
+                        activo BOOLEAN DEFAULT 1
+                    )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO usuario_perfil_coe_dpa_mesa (
+                        usuario_id, provincia_id, canton_id
+                    ) VALUES (:usuario_id, 9, 0)
+                    """
+                ),
+                {"usuario_id": usuario_id},
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO emergencias (
+                        nombre, activo, fecha_inicio, fecha_fin, dashboard
+                    ) VALUES
+                        ('Vigente abierta', 1, datetime('now', '-1 day'), NULL, 'abierta'),
+                        ('Vigente con fin', 1, datetime('now', '-1 day'), datetime('now', '+1 day'), 'con-fin'),
+                        ('Futura', 1, datetime('now', '+1 day'), NULL, 'futura'),
+                        ('Finalizada', 1, datetime('now', '-2 day'), datetime('now', '-1 day'), 'finalizada'),
+                        ('Inactiva', 0, datetime('now', '-1 day'), NULL, 'inactiva')
+                    """
+                )
+            )
+            db.session.commit()
+
+        response = self.client.get(
+            "/api/emergencias/usuario/admin",
+            headers=headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        emergencies = response.get_json()
+        self.assertEqual(
+            [item["emergencia"] for item in emergencies],
+            ["Vigente abierta", "Vigente con fin"],
+        )
+        self.assertTrue(all(item["usuario"] == "admin" for item in emergencies))
+        self.assertTrue(all(item["ambito"] == "PROVINCIAL" for item in emergencies))
+        self.assertEqual(
+            [item["dashboard"] for item in emergencies],
+            ["abierta", "con-fin"],
+        )
 
     def test_list_eventos_by_provincia_id(self):
         with self.app.app_context():

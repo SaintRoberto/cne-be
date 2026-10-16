@@ -1,0 +1,2 @@
+ALTER TABLE public.emergencias
+    ADD COLUMN IF NOT EXISTS logo VARCHAR(100);
