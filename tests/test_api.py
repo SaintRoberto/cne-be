@@ -69,6 +69,9 @@ class ApiTestCase(unittest.TestCase):
         self.assertIn("/api/instituciones", paths)
         self.assertIn("/api/ubicaciones/importar", paths)
         self.assertIn("/api/eventos/provincia/{provincia_id}", paths)
+        self.assertIn(
+            "/api/eventos/provincia/{provincia_id}/usuario/{usuario}", paths
+        )
         self.assertIn("/api/provincias/provincia/{provincia_id}", paths)
         self.assertIn("/api/emergencias", paths)
         self.assertIn("/api/emergencias/{item_id}", paths)
@@ -332,6 +335,13 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(inactive_created.status_code, 201)
         inactive_emergencia = inactive_created.get_json()
 
+        all_listed = self.client.get("/api/emergencias/todas", headers=headers)
+        self.assertEqual(all_listed.status_code, 200)
+        self.assertEqual(
+            [item["id"] for item in all_listed.get_json()],
+            [emergencia["id"], inactive_emergencia["id"]],
+        )
+
         listed = self.client.get("/api/emergencias", headers=headers)
         self.assertEqual(listed.status_code, 200)
         self.assertEqual([item["id"] for item in listed.get_json()], [emergencia["id"]])
@@ -437,6 +447,13 @@ class ApiTestCase(unittest.TestCase):
             ["abierta", "con-fin"],
         )
 
+        general_response = self.client.get("/api/emergencias", headers=headers)
+        self.assertEqual(general_response.status_code, 200)
+        self.assertEqual(
+            [item["nombre"] for item in general_response.get_json()],
+            ["Vigente abierta", "Vigente con fin"],
+        )
+
     def test_list_eventos_by_provincia_id(self):
         with self.app.app_context():
             db.session.execute(
@@ -486,6 +503,55 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(filtered_list.status_code, 200)
         self.assertEqual(filtered_list.get_json(), eventos)
+
+    def test_list_eventos_by_provincia_and_creator(self):
+        with self.app.app_context():
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE eventos (
+                        id INTEGER PRIMARY KEY,
+                        provincia_id INTEGER NOT NULL,
+                        sector VARCHAR(1000),
+                        creador VARCHAR(100)
+                    )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO provincias (id, dpa, nombre)
+                    VALUES (13, '13', 'MANABI'), (9, '09', 'GUAYAS')
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO eventos (id, provincia_id, sector, creador)
+                    VALUES
+                        (1, 9, 'Norte', 'cne_guayas'),
+                        (2, 9, 'Sur', 'otro_usuario'),
+                        (3, 13, 'Centro', 'cne_guayas'),
+                        (4, 9, 'Oeste', 'cne_guayas')
+                    """
+                )
+            )
+            db.session.commit()
+
+        token = self.register().get_json()["token"]
+        response = self.client.get(
+            "/api/eventos/provincia/9/usuario/cne_guayas",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        eventos = response.get_json()
+        self.assertEqual([evento["id"] for evento in eventos], [1, 4])
+        self.assertTrue(all(evento["provincia_id"] == 9 for evento in eventos))
+        self.assertTrue(all(evento["creador"] == "cne_guayas" for evento in eventos))
+        self.assertTrue(all(evento["provincia_nombre"] == "GUAYAS" for evento in eventos))
 
     def test_list_event_affectations_summary_by_province(self):
         with self.app.app_context():
@@ -810,6 +876,9 @@ class ApiTestCase(unittest.TestCase):
     def test_import_infrastructures_creates_updates_and_validates_geography(self):
         with self.app.app_context():
             db.session.execute(
+                text("INSERT INTO emergencias (id, nombre) VALUES (99, 'Proceso Electoral')")
+            )
+            db.session.execute(
                 text("INSERT INTO provincias (id, dpa, nombre) VALUES (1, '01', 'AZUAY')")
             )
             db.session.execute(
@@ -840,9 +909,10 @@ class ApiTestCase(unittest.TestCase):
         created = self.client.post(
             "/api/infraestructuras/importar",
             headers=headers,
-            data={"archivo": (io.BytesIO(csv_content), "recintos.csv")},
+            data={"emergencia_id": "99", "archivo": (io.BytesIO(csv_content), "recintos.csv")},
         )
         self.assertEqual(created.status_code, 200)
+        self.assertEqual(created.get_json()["emergencia_id"], 99)
         self.assertEqual(created.get_json()["creados"], 1)
 
         items = self.client.get("/api/infraestructuras", headers=headers).get_json()
@@ -856,26 +926,43 @@ class ApiTestCase(unittest.TestCase):
 
         updated_csv = csv_content.replace(
             b"ESCUELA EL DIAMANTE", b"ESCUELA EL DIAMANTE ACTUALIZADA"
-        )
+        ).replace(b";-3,07881598", b";95,5")
         updated = self.client.post(
             "/api/infraestructuras/importar",
             headers=headers,
-            data={"archivo": (io.BytesIO(updated_csv), "recintos.csv")},
+            data={"emergencia_id": "99", "archivo": (io.BytesIO(updated_csv), "recintos.csv")},
         )
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(updated.get_json()["actualizados"], 1)
         self.assertEqual(updated.get_json()["creados"], 0)
+        self.assertEqual(
+            updated.get_json()["coordenadas_corregidas"],
+            [
+                {
+                    "dpa": "015566875055021",
+                    "fila": 2,
+                    "latitud_asignada": 0.0,
+                    "latitud_original": "95,5",
+                    "longitud_asignada": 0.0,
+                    "longitud_original": "-79,70736392",
+                    "mensaje": "Coordenada incorrecta, corregir y volver a cargar el archivo",
+                    "nombre": "ESCUELA EL DIAMANTE ACTUALIZADA",
+                }
+            ],
+        )
 
         invalid_geography = csv_content.replace(b";5;5021;", b";6;5021;")
         rejected = self.client.post(
             "/api/infraestructuras/importar",
             headers=headers,
-            data={"archivo": (io.BytesIO(invalid_geography), "recintos.csv")},
+            data={"emergencia_id": "99", "archivo": (io.BytesIO(invalid_geography), "recintos.csv")},
         )
         self.assertEqual(rejected.status_code, 409)
         items = self.client.get("/api/infraestructuras", headers=headers).get_json()
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["nombre"], "ESCUELA EL DIAMANTE ACTUALIZADA")
+        self.assertEqual(float(items[0]["longitud"]), 0.0)
+        self.assertEqual(float(items[0]["latitud"]), 0.0)
 
         item_id = items[0]["id"]
         patched = self.client.patch(

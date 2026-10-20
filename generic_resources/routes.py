@@ -500,7 +500,14 @@ def _make_list(table_name: str, label: str):
         table = _get_table(table_name)
         statement = select(table)
         if table_name == "emergencias":
-            statement = statement.where(table.c.activo == true())
+            statement = statement.where(
+                table.c.activo == true(),
+                table.c.fecha_inicio <= func.now(),
+                or_(
+                    table.c.fecha_fin.is_(None),
+                    table.c.fecha_fin >= func.now(),
+                ),
+            )
         filter_name = {"provincias": "provincia_id"}.get(table_name)
         if filter_name is not None:
             item_id, error_response = _integer_query_arg(filter_name)
@@ -524,7 +531,7 @@ def _make_list(table_name: str, label: str):
 """.format(filter_name=filter_name)
 
     response_description = (
-        "Lista de emergencias activas"
+        "Lista de emergencias activas y vigentes"
         if table_name == "emergencias"
         else "Lista de registros"
     )
@@ -539,6 +546,31 @@ def _make_list(table_name: str, label: str):
         description: {response_description}
     """
     return list_items
+
+
+def _make_list_all_emergencies():
+    @jwt_required
+    def list_all_emergencies():
+        table = _get_table("emergencias")
+        order_column = table.c.id if "id" in table.c else next(iter(table.c))
+        rows = db.session.execute(
+            select(table).order_by(order_column)
+        ).mappings().all()
+        return jsonify([_row_to_dict(dict(row)) for row in rows])
+
+    list_all_emergencies.__name__ = "list_all_emergencies"
+    list_all_emergencies.__doc__ = """Listar todas las emergencias sin filtro de vigencia
+    ---
+    tags: [Emergencias]
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Lista completa de emergencias
+      401:
+        description: Token ausente o invalido
+    """
+    return list_all_emergencies
 
 
 def _select_events_with_relations():
@@ -635,6 +667,69 @@ def _make_list_events_by_province():
         description: Token ausente o invalido
     """
     return list_events_by_province
+
+
+def _make_list_events_by_province_and_user():
+    @jwt_required
+    def list_events_by_province_and_user(provincia_id: int, usuario: str):
+        events, statement = _select_events_with_relations()
+        provincia_column = events.c.get("provincia_id")
+        creator_column = events.c.get("creador")
+        missing_columns = [
+            column_name
+            for column_name, column in (
+                ("provincia_id", provincia_column),
+                ("creador", creator_column),
+            )
+            if column is None
+        ]
+        if missing_columns:
+            current_app.logger.error(
+                "eventos no tiene las columnas requeridas: %s",
+                ", ".join(missing_columns),
+            )
+            return jsonify(
+                error=(
+                    "La tabla eventos no tiene las columnas requeridas: "
+                    + ", ".join(missing_columns)
+                )
+            ), 500
+
+        order_column = events.c.id if "id" in events.c else next(iter(events.c))
+        rows = db.session.execute(
+            statement.where(
+                provincia_column == provincia_id,
+                creator_column == usuario,
+            ).order_by(order_column)
+        ).mappings().all()
+        return jsonify([_row_to_dict(dict(row)) for row in rows])
+
+    list_events_by_province_and_user.__name__ = (
+        "list_events_by_province_and_user"
+    )
+    list_events_by_province_and_user.__doc__ = """Listar eventos por provincia y usuario creador
+    ---
+    tags: [Eventos]
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: provincia_id
+        type: integer
+        required: true
+        description: Identificador de la provincia
+      - in: path
+        name: usuario
+        type: string
+        required: true
+        description: Nombre del usuario creador
+    responses:
+      200:
+        description: Eventos creados por el usuario en la provincia indicada
+      401:
+        description: Token ausente o invalido
+    """
+    return list_events_by_province_and_user
 
 
 def _make_list_provinces_by_id():
@@ -1835,6 +1930,12 @@ for slug, table_name, label in RESOURCES:
             methods=["GET"],
         )
         generic_resources_bp.add_url_rule(
+            f"/{slug}/provincia/<int:provincia_id>/usuario/<string:usuario>",
+            endpoint="eventos_by_provincia_and_usuario",
+            view_func=_make_list_events_by_province_and_user(),
+            methods=["GET"],
+        )
+        generic_resources_bp.add_url_rule(
             f"/{slug}/afectaciones/provincias",
             endpoint="eventos_afectaciones_by_provincia",
             view_func=_make_list_event_affectations_summary_by_province(),
@@ -1862,6 +1963,13 @@ for slug, table_name, label in RESOURCES:
         view_func=_make_delete(table_name, label),
         methods=["DELETE"],
     )
+
+generic_resources_bp.add_url_rule(
+    "/emergencias/todas",
+    endpoint="emergencias_todas",
+    view_func=_make_list_all_emergencies(),
+    methods=["GET"],
+)
 
 generic_resources_bp.add_url_rule(
     "/emergencias/usuario/<string:usuario>",

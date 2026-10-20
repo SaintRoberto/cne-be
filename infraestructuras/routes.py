@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from auth import jwt_required
 from extensions import db
 from infraestructuras import infraestructuras_bp
-from models import Canton, Infraestructura, Parroquia, Provincia, Zona, utc_now
+from models import Canton, Emergencia, Infraestructura, Parroquia, Provincia, Zona, utc_now
 
 
 MAX_IMPORT_BYTES = 5 * 1024 * 1024
@@ -94,7 +94,7 @@ def _decimal(value: str, column: str, line: int) -> Decimal:
         ) from error
 
 
-def _read_csv(upload) -> list[dict[str, object]]:
+def _read_csv(upload) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     content = upload.read(MAX_IMPORT_BYTES + 1)
     if len(content) > MAX_IMPORT_BYTES:
         raise ImportValidationError("El archivo supera el limite de 5 MB")
@@ -112,6 +112,7 @@ def _read_csv(upload) -> list[dict[str, object]]:
         )
 
     records: dict[str, dict[str, object]] = {}
+    coordinate_issues: list[dict[str, object]] = []
     for line, source in enumerate(reader, start=2):
         if not source or not any((value or "").strip() for value in source.values()):
             continue
@@ -138,10 +139,23 @@ def _read_csv(upload) -> list[dict[str, object]]:
         infrastructure_dpa = f"{zone_dpa}{values['CODIGO RECINTO']}"
         longitude = _decimal(values["long"], "long", line)
         latitude = _decimal(values["lat"], "lat", line)
-        if not Decimal("-180") <= longitude <= Decimal("180"):
-            raise ImportValidationError(f"Fila {line}: longitud fuera de rango")
-        if not Decimal("-90") <= latitude <= Decimal("90"):
-            raise ImportValidationError(f"Fila {line}: latitud fuera de rango")
+        longitude_out_of_range = not Decimal("-180") <= longitude <= Decimal("180")
+        latitude_out_of_range = not Decimal("-90") <= latitude <= Decimal("90")
+        if longitude_out_of_range or latitude_out_of_range:
+            coordinate_issues.append(
+                {
+                    "fila": line,
+                    "dpa": infrastructure_dpa,
+                    "nombre": values["NOMBRE RECINTO"],
+                    "longitud_original": values["long"],
+                    "latitud_original": values["lat"],
+                    "longitud_asignada": 0.0,
+                    "latitud_asignada": 0.0,
+                    "mensaje": "Coordenada incorrecta, corregir y volver a cargar el archivo",
+                }
+            )
+            longitude = Decimal("0")
+            latitude = Decimal("0")
 
         record = {
             "id": int(infrastructure_dpa),
@@ -165,7 +179,7 @@ def _read_csv(upload) -> list[dict[str, object]]:
 
     if not records:
         raise ImportValidationError("El archivo no contiene filas para importar")
-    return list(records.values())
+    return list(records.values()), coordinate_issues
 
 
 def _validate_geography(records: list[dict[str, object]]) -> None:
@@ -344,6 +358,14 @@ def import_infrastructures():
       409:
         description: El archivo referencia codigos geograficos inexistentes.
     """
+    raw_emergency_id = (request.form.get("emergencia_id") or "").strip()
+    try:
+        emergency_id = int(raw_emergency_id)
+    except (TypeError, ValueError):
+        return jsonify(error="Debe seleccionar una emergencia valida"), 400
+    if emergency_id <= 0 or db.session.get(Emergencia, emergency_id) is None:
+        return jsonify(error="La emergencia seleccionada no existe"), 400
+
     upload = request.files.get("archivo")
     if upload is None or not upload.filename:
         return jsonify(error="Debe adjuntar el archivo CSV en el campo 'archivo'"), 400
@@ -351,7 +373,7 @@ def import_infrastructures():
         return jsonify(error="El archivo debe tener extension .csv"), 400
 
     try:
-        records = _read_csv(upload)
+        records, coordinate_issues = _read_csv(upload)
         _validate_geography(records)
     except ImportValidationError as error:
         return jsonify(error="Archivo CSV invalido", detalle=str(error)), 400
@@ -410,7 +432,13 @@ def import_infrastructures():
         raise
 
     return jsonify(
-        mensaje="Importacion de infraestructuras completada",
+        mensaje=(
+            "Importacion completada con coordenadas incorrectas. Corrija el archivo y vuelva a cargarlo."
+            if coordinate_issues
+            else "Importacion de infraestructuras completada"
+        ),
+        emergencia_id=emergency_id,
         filas_procesadas=len(records),
+        coordenadas_corregidas=coordinate_issues,
         **counters,
     )
