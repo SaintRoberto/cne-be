@@ -876,7 +876,10 @@ class ApiTestCase(unittest.TestCase):
     def test_import_infrastructures_creates_updates_and_validates_geography(self):
         with self.app.app_context():
             db.session.execute(
-                text("INSERT INTO emergencias (id, nombre) VALUES (99, 'Proceso Electoral')")
+                text(
+                    "INSERT INTO infraestructura_tipos (id, nombre) "
+                    "VALUES (3, 'Recintos Electorales')"
+                )
             )
             db.session.execute(
                 text("INSERT INTO provincias (id, dpa, nombre) VALUES (1, '01', 'AZUAY')")
@@ -909,10 +912,10 @@ class ApiTestCase(unittest.TestCase):
         created = self.client.post(
             "/api/infraestructuras/importar",
             headers=headers,
-            data={"emergencia_id": "99", "archivo": (io.BytesIO(csv_content), "recintos.csv")},
+            data={"infraestructura_tipo_id": "3", "archivo": (io.BytesIO(csv_content), "recintos.csv")},
         )
         self.assertEqual(created.status_code, 200)
-        self.assertEqual(created.get_json()["emergencia_id"], 99)
+        self.assertEqual(created.get_json()["infraestructura_tipo_id"], 3)
         self.assertEqual(created.get_json()["creados"], 1)
 
         items = self.client.get("/api/infraestructuras", headers=headers).get_json()
@@ -923,6 +926,15 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(items[0]["canton_id"], 1556)
         self.assertEqual(items[0]["parroquia_id"], 15566875)
         self.assertEqual(items[0]["zona_id"], 1556687505)
+        self.assertEqual(items[0]["infraestructura_tipo_id"], 3)
+
+        filtered = self.client.get(
+            "/api/infraestructuras/infraestructura_tipo/3",
+            headers=headers,
+        )
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual(len(filtered.get_json()), 1)
+        self.assertEqual(filtered.get_json()[0]["infraestructura_tipo_id"], 3)
 
         updated_csv = csv_content.replace(
             b"ESCUELA EL DIAMANTE", b"ESCUELA EL DIAMANTE ACTUALIZADA"
@@ -930,7 +942,7 @@ class ApiTestCase(unittest.TestCase):
         updated = self.client.post(
             "/api/infraestructuras/importar",
             headers=headers,
-            data={"emergencia_id": "99", "archivo": (io.BytesIO(updated_csv), "recintos.csv")},
+            data={"infraestructura_tipo_id": "3", "archivo": (io.BytesIO(updated_csv), "recintos.csv")},
         )
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(updated.get_json()["actualizados"], 1)
@@ -955,12 +967,13 @@ class ApiTestCase(unittest.TestCase):
         rejected = self.client.post(
             "/api/infraestructuras/importar",
             headers=headers,
-            data={"emergencia_id": "99", "archivo": (io.BytesIO(invalid_geography), "recintos.csv")},
+            data={"infraestructura_tipo_id": "3", "archivo": (io.BytesIO(invalid_geography), "recintos.csv")},
         )
         self.assertEqual(rejected.status_code, 409)
         items = self.client.get("/api/infraestructuras", headers=headers).get_json()
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["nombre"], "ESCUELA EL DIAMANTE ACTUALIZADA")
+        self.assertEqual(items[0]["infraestructura_tipo_id"], 3)
         self.assertEqual(float(items[0]["longitud"]), 0.0)
         self.assertEqual(float(items[0]["latitud"]), 0.0)
 
@@ -977,7 +990,7 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(deleted.status_code, 204)
 
-    def test_list_infrastructures_by_parish_type_and_emergency(self):
+    def test_list_infrastructures_by_parish_and_type(self):
         with self.app.app_context():
             db.session.execute(
                 text(
@@ -1118,7 +1131,7 @@ class ApiTestCase(unittest.TestCase):
         response = self.client.get(
             (
                 "/api/infraestructuras/parroquia/130801/"
-                "infraestructura_tipo/2/emergencia/99"
+                "infraestructura_tipo/2"
             ),
             headers={"Authorization": token},
         )

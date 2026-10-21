@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from auth import jwt_required
 from extensions import db
 from infraestructuras import infraestructuras_bp
-from models import Canton, Emergencia, Infraestructura, Parroquia, Provincia, Zona, utc_now
+from models import Canton, Infraestructura, InfraestructuraTipo, Parroquia, Provincia, Zona, utc_now
 
 
 MAX_IMPORT_BYTES = 5 * 1024 * 1024
@@ -80,6 +80,23 @@ def _optional_joined_column(
 
 def _float_or_none(value):
     return float(value) if value is not None else None
+
+
+def _infrastructure_list_item(item: Infraestructura) -> dict[str, object]:
+    return {
+        "id": item.id,
+        "provincia_id": item.provincia_id,
+        "canton_id": item.canton_id,
+        "parroquia_id": item.parroquia_id,
+        "zona_id": item.zona_id,
+        "dpa": item.dpa,
+        "infraestructura_tipo_id": item.infraestructura_tipo_id,
+        "nombre": item.nombre,
+        "direccion": item.direccion,
+        "longitud": _float_or_none(item.longitud),
+        "latitud": _float_or_none(item.latitud),
+        "activo": item.activo,
+    }
 
 
 def _decimal(value: str, column: str, line: int) -> Decimal:
@@ -204,16 +221,42 @@ def _validate_geography(records: list[dict[str, object]]) -> None:
 
 
 @infraestructuras_bp.get(
-    "/parroquia/<int:parroquia_id>/infraestructura_tipo/"
-    "<int:infraestructura_tipo_id>/emergencia/<int:emergencia_id>"
+    "/infraestructura_tipo/<int:infraestructura_tipo_id>"
 )
 @jwt_required
-def get_infrastructures_by_parish_type_and_emergency(
+def get_infrastructures_by_type(infraestructura_tipo_id: int):
+    """Obtener infraestructuras por tipo
+    ---
+    tags: [Infraestructuras]
+    security:
+      - Bearer: []
+    parameters:
+      - name: infraestructura_tipo_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Lista de infraestructuras del tipo seleccionado
+    """
+    items = db.session.scalars(
+        select(Infraestructura)
+        .where(Infraestructura.infraestructura_tipo_id == infraestructura_tipo_id)
+        .order_by(Infraestructura.id)
+    ).all()
+    return jsonify([_infrastructure_list_item(item) for item in items])
+
+
+@infraestructuras_bp.get(
+    "/parroquia/<int:parroquia_id>/infraestructura_tipo/"
+    "<int:infraestructura_tipo_id>"
+)
+@jwt_required
+def get_infrastructures_by_parish_and_type(
     parroquia_id: int,
     infraestructura_tipo_id: int,
-    emergencia_id: int,
 ):
-    """Obtener infraestructuras por parroquia, tipo y emergencia
+    """Obtener infraestructuras por parroquia y tipo
     ---
     tags: [Infraestructuras]
     security:
@@ -227,13 +270,9 @@ def get_infrastructures_by_parish_type_and_emergency(
         in: path
         type: integer
         required: true
-      - name: emergencia_id
-        in: path
-        type: integer
-        required: true
     responses:
       200:
-        description: Lista de infraestructuras por parroquia, tipo y emergencia
+        description: Lista de infraestructuras por parroquia y tipo
         schema:
           type: array
           items:
@@ -261,8 +300,7 @@ def get_infrastructures_by_parish_type_and_emergency(
             "parroquia_id",
             "infraestructura_tipo_id",
         ),
-        "infraestructura_tipos": ("id", "emergencia_id", "nombre"),
-        "emergencias": ("id",),
+        "infraestructura_tipos": ("id", "nombre"),
     }
     missing = {
         table_name: columns
@@ -299,11 +337,8 @@ def get_infrastructures_by_parish_type_and_emergency(
             i.longitud,
             i.latitud
         FROM infraestructuras i
-        INNER JOIN emergencias e
-            ON e.id = :emergencia_id
         INNER JOIN infraestructura_tipos it
             ON it.id = i.infraestructura_tipo_id
-           AND it.emergencia_id = e.id
         WHERE i.parroquia_id = :parroquia_id
           AND i.infraestructura_tipo_id = :infraestructura_tipo_id
         ORDER BY i.id
@@ -314,7 +349,6 @@ def get_infrastructures_by_parish_type_and_emergency(
         {
             "parroquia_id": parroquia_id,
             "infraestructura_tipo_id": infraestructura_tipo_id,
-            "emergencia_id": emergencia_id,
         },
     ).mappings().all()
 
@@ -346,6 +380,11 @@ def import_infrastructures():
       - Bearer: []
     parameters:
       - in: formData
+        name: infraestructura_tipo_id
+        type: integer
+        required: true
+        description: Tipo asignado a las infraestructuras importadas.
+      - in: formData
         name: archivo
         type: file
         required: true
@@ -358,13 +397,18 @@ def import_infrastructures():
       409:
         description: El archivo referencia codigos geograficos inexistentes.
     """
-    raw_emergency_id = (request.form.get("emergencia_id") or "").strip()
+    raw_infrastructure_type_id = (
+        request.form.get("infraestructura_tipo_id") or ""
+    ).strip()
     try:
-        emergency_id = int(raw_emergency_id)
+        infrastructure_type_id = int(raw_infrastructure_type_id)
     except (TypeError, ValueError):
-        return jsonify(error="Debe seleccionar una emergencia valida"), 400
-    if emergency_id <= 0 or db.session.get(Emergencia, emergency_id) is None:
-        return jsonify(error="La emergencia seleccionada no existe"), 400
+        return jsonify(error="Debe seleccionar un tipo de infraestructura valido"), 400
+    if (
+        infrastructure_type_id <= 0
+        or db.session.get(InfraestructuraTipo, infrastructure_type_id) is None
+    ):
+        return jsonify(error="El tipo de infraestructura seleccionado no existe"), 400
 
     upload = request.files.get("archivo")
     if upload is None or not upload.filename:
@@ -374,6 +418,8 @@ def import_infrastructures():
 
     try:
         records, coordinate_issues = _read_csv(upload)
+        for record in records:
+            record["infraestructura_tipo_id"] = infrastructure_type_id
         _validate_geography(records)
     except ImportValidationError as error:
         return jsonify(error="Archivo CSV invalido", detalle=str(error)), 400
@@ -437,7 +483,7 @@ def import_infrastructures():
             if coordinate_issues
             else "Importacion de infraestructuras completada"
         ),
-        emergencia_id=emergency_id,
+        infraestructura_tipo_id=infrastructure_type_id,
         filas_procesadas=len(records),
         coordenadas_corregidas=coordinate_issues,
         **counters,
