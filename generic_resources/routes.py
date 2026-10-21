@@ -1544,7 +1544,6 @@ def _request_schema_doc(table_name: str, *, partial: bool) -> str:
             - sector
             - evento_tipo_id
             - evento_causa_id
-            - evento_origen_id
 """
         return f"""          type: object
 {required}          properties:
@@ -1596,6 +1595,7 @@ def _request_schema_doc(table_name: str, *, partial: bool) -> str:
               example: 3
             evento_origen_id:
               type: integer
+              nullable: true
               example: 2
             evento_atencion_estado_id:
               type: integer
@@ -1632,7 +1632,7 @@ def _request_schema_doc(table_name: str, *, partial: bool) -> str:
             evento_tipo_id: 1
             evento_subtipo_id: 4
             evento_causa_id: 3
-            evento_origen_id: 2
+            evento_origen_id: null
             evento_atencion_estado_id: 1
             alto_impacto: false
             descripcion: Desbordamiento reportado por la comunidad.

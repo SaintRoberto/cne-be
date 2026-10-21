@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS public.eventos (
     evento_tipo_id INTEGER NOT NULL,
     evento_subtipo_id INTEGER,
     evento_causa_id INTEGER NOT NULL,
-    evento_origen_id INTEGER NOT NULL,
+    evento_origen_id INTEGER,
     evento_atencion_estado_id INTEGER,
     alto_impacto BOOLEAN NOT NULL DEFAULT FALSE,
     descripcion VARCHAR(5000),

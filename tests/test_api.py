@@ -1937,7 +1937,7 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual([item["nombre"] for item in cantones.get_json()], ["Cuenca"])
         self.assertEqual(len(parroquias_por_canton.get_json()), 2)
 
-    def test_create_event_allows_null_attention_status(self):
+    def test_create_event_allows_null_attention_status_and_origin(self):
         with self.app.app_context():
             db.session.execute(
                 text(
@@ -1957,7 +1957,7 @@ class ApiTestCase(unittest.TestCase):
                         evento_tipo_id INTEGER NOT NULL,
                         evento_subtipo_id INTEGER,
                         evento_causa_id INTEGER NOT NULL,
-                        evento_origen_id INTEGER NOT NULL,
+                        evento_origen_id INTEGER,
                         evento_atencion_estado_id INTEGER,
                         alto_impacto BOOLEAN NOT NULL DEFAULT 0,
                         situacion VARCHAR(12000),
@@ -1987,7 +1987,7 @@ class ApiTestCase(unittest.TestCase):
                 "evento_tipo_id": 1,
                 "evento_subtipo_id": 1,
                 "evento_causa_id": 3,
-                "evento_origen_id": 2,
+                "evento_origen_id": None,
                 "evento_atencion_estado_id": None,
             },
         )
@@ -1995,6 +1995,7 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         created = response.get_json()
         self.assertIsNone(created["evento_atencion_estado_id"])
+        self.assertIsNone(created["evento_origen_id"])
         self.assertEqual(created["infraestructura_id"], 9010100010001)
         self.assertEqual(created["afectacion_variable_id"], 2)
 
@@ -2028,7 +2029,6 @@ class ApiTestCase(unittest.TestCase):
                 "sector",
                 "evento_tipo_id",
                 "evento_causa_id",
-                "evento_origen_id",
             ],
         )
         self.assertIn("infraestructura_id", create_schema["properties"])
@@ -2038,6 +2038,8 @@ class ApiTestCase(unittest.TestCase):
             130801000100001,
         )
         self.assertEqual(create_schema["example"]["afectacion_variable_id"], 2)
+        self.assertTrue(create_schema["properties"]["evento_origen_id"]["nullable"])
+        self.assertIsNone(create_schema["example"]["evento_origen_id"])
         self.assertNotIn("required", update_schema)
 
     def test_affectation_variable_resources_crud(self):
