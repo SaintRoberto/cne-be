@@ -200,6 +200,53 @@ AFFECTATION_SUMMARY_COLUMNS = (
     ),
 )
 
+# Orden funcional de las variables que se presentan como columnas en la
+# matriz de afectaciones. Los alias admiten las variantes singular/plural que
+# existen actualmente en los catalogos.
+AFFECTATION_MATRIX_ORDER = (
+    (
+        "recinto afectado",
+        "recintos afectados",
+        "recinto electoral afectado",
+        "recintos electorales afectados",
+    ),
+    (
+        "recinto destruido",
+        "recintos destruidos",
+        "recinto electoral destruido",
+        "recintos electorales destruidos",
+    ),
+    ("personas fallecidas",),
+    ("personas heridas",),
+    ("personas evacuadas",),
+    (
+        "personas afectadas directamente",
+        "personas afectadas directamente incluir heridos",
+    ),
+    ("familias afectadas",),
+    ("personas afectadas indirectamente",),
+    ("viviendas afectadas",),
+    ("viviendas destruidas",),
+    ("centros de salud afectados",),
+    ("centros de salud destruidos",),
+    ("bien publico afectado",),
+    ("bien publico destruido",),
+    ("bien privado afectado",),
+    ("bien privado destruido",),
+    ("puentes afectados",),
+    ("puentes destruidos",),
+    ("metros lineales de vias afectadas",),
+    ("ha cultivos afectados", "hectareas de cultivos afectados"),
+    ("ha cultivos perdidos", "hectareas de cultivos perdidos"),
+    (
+        "ha de cobertura vegetal quemada",
+        "ha de cobertura vegetal quemada incluir cultivos",
+        "hectareas de cobertura vegetal quemada",
+    ),
+    ("animales afectados",),
+    ("animales muertos",),
+)
+
 
 def _table_cache() -> dict[str, Table]:
     return current_app.extensions.setdefault("reflected_tables", {})
@@ -255,6 +302,17 @@ def _normalize_summary_text(value: Any) -> str:
     normalized = unicodedata.normalize("NFKD", str(value or ""))
     ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", " ", ascii_text.lower()).strip()
+
+
+def _affectation_matrix_sort_key(
+    variable_name: Any,
+    variable_id: Any,
+) -> tuple[int, int]:
+    normalized_name = _normalize_summary_text(variable_name)
+    for position, aliases in enumerate(AFFECTATION_MATRIX_ORDER):
+        if normalized_name in aliases:
+            return position, int(variable_id or 0)
+    return len(AFFECTATION_MATRIX_ORDER), int(variable_id or 0)
 
 
 def _affectation_summary_key(variable_name: Any) -> str | None:
@@ -1413,7 +1471,14 @@ def _make_list_affectation_variables_by_group_and_coe():
         rows = db.session.execute(
             statement.order_by(order_column)
         ).mappings().all()
-        return jsonify([_row_to_dict(dict(row)) for row in rows])
+        items = [_row_to_dict(dict(row)) for row in rows]
+        items.sort(
+            key=lambda item: _affectation_matrix_sort_key(
+                item.get("nombre"),
+                item.get("id"),
+            )
+        )
+        return jsonify(items)
 
     list_affectation_variables_by_group_and_coe.__name__ = (
         "list_affectation_variables_by_group_and_coe"

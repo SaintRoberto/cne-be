@@ -1838,8 +1838,8 @@ class ApiTestCase(unittest.TestCase):
                         id, nombre, requiere_gis, activo
                     )
                     VALUES
-                        (1, 'Personas Fallecidas', 1, 1),
-                        (2, 'Personas Heridas', 1, 1)
+                        (1, 'Personas Heridas', 1, 1),
+                        (2, 'Personas Fallecidas', 1, 1)
                     """
                 )
             )
@@ -1865,13 +1865,13 @@ class ApiTestCase(unittest.TestCase):
             [
                 {
                     "activo": True,
-                    "id": 1,
+                    "id": 2,
                     "nombre": "Personas Fallecidas",
                     "requiere_gis": True,
                 },
                 {
                     "activo": True,
-                    "id": 2,
+                    "id": 1,
                     "nombre": "Personas Heridas",
                     "requiere_gis": True,
                 },
