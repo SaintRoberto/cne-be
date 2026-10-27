@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     institucion_id INTEGER NOT NULL,
     usuario VARCHAR(100) NOT NULL,
     clave VARCHAR(255),
+    debe_cambiar_clave BOOLEAN NOT NULL DEFAULT TRUE,
     descripcion TEXT,
     celular VARCHAR(20),
     correo VARCHAR(150),

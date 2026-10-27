@@ -6,6 +6,7 @@ from auth import generate_token, hash_password, jwt_required, verify_password
 from extensions import db
 from models import Usuario, utc_now
 from schemas import (
+    change_password_schema,
     login_schema,
     register_schema,
     usuario_response_schema,
@@ -14,6 +15,13 @@ from schemas import (
 )
 from usuarios import usuarios_bp
 from utils.validation import load_json
+
+
+ADMIN_ALIASES = {"admin", "administrador"}
+
+
+def _current_user_is_admin() -> bool:
+    return str(g.current_user.usuario or "").strip().casefold() in ADMIN_ALIASES
 
 
 @usuarios_bp.post("")
@@ -140,6 +148,58 @@ def me():
     return jsonify(usuario_response_schema.dump(g.current_user))
 
 
+@usuarios_bp.post("/cambiar-clave")
+@jwt_required
+def change_password():
+    """Cambiar la clave del usuario autenticado
+    ---
+    tags: [Autenticación]
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required: [nueva_clave]
+          properties:
+            nueva_clave:
+              type: string
+              format: password
+              minLength: 8
+    responses:
+      200:
+        description: Clave actualizada
+      400:
+        description: Clave inválida o igual a la anterior
+      401:
+        description: Token ausente o inválido
+    """
+    data, error = load_json(change_password_schema)
+    if error:
+        return error
+
+    usuario = g.current_user
+    nueva_clave = data["nueva_clave"]
+    if verify_password(nueva_clave, usuario.clave):
+        return jsonify(error="La nueva contraseña debe ser diferente a la actual"), 400
+
+    try:
+        usuario.clave = hash_password(nueva_clave)
+    except ValueError as error_message:
+        return jsonify(error=str(error_message)), 400
+    usuario.debe_cambiar_clave = False
+    usuario.modificador = usuario.usuario
+    usuario.modificacion = utc_now()
+    db.session.commit()
+
+    return jsonify(
+        mensaje="Contraseña actualizada correctamente",
+        debe_cambiar_clave=False,
+    )
+
+
 @usuarios_bp.get("")
 @jwt_required
 def list_usuarios():
@@ -152,8 +212,55 @@ def list_usuarios():
       200:
         description: Lista de usuarios sin contraseñas
     """
-    usuarios = db.session.scalars(select(Usuario).order_by(Usuario.id)).all()
+    if not _current_user_is_admin():
+        return jsonify(error="Solo el administrador puede consultar usuarios"), 403
+    usuarios = db.session.scalars(select(Usuario).order_by(Usuario.usuario)).all()
     return jsonify(usuarios_response_schema.dump(usuarios))
+
+
+@usuarios_bp.post("/<int:usuario_id>/restablecer-clave")
+@jwt_required
+def reset_password(usuario_id: int):
+    """Restablecer la clave temporal de un usuario
+    ---
+    tags: [Usuarios]
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: usuario_id
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Clave restablecida a nombre_de_usuario seguido de 2026
+      403:
+        description: Acceso exclusivo para el administrador
+      404:
+        description: Usuario no encontrado
+    """
+    if not _current_user_is_admin():
+        return jsonify(error="Solo el administrador puede restablecer contraseñas"), 403
+
+    usuario = db.session.get(Usuario, usuario_id)
+    if usuario is None:
+        return jsonify(error="Usuario no encontrado"), 404
+
+    clave_temporal = f"{usuario.usuario}2026"
+    try:
+        usuario.clave = hash_password(clave_temporal)
+    except ValueError as error_message:
+        return jsonify(error=str(error_message)), 400
+    usuario.debe_cambiar_clave = True
+    usuario.modificador = g.current_user.usuario
+    usuario.modificacion = utc_now()
+    db.session.commit()
+
+    return jsonify(
+        mensaje="Contraseña restablecida correctamente",
+        usuario_id=usuario.id,
+        debe_cambiar_clave=True,
+    )
 
 
 @usuarios_bp.get("/<int:usuario_id>/datos-login")
@@ -173,7 +280,7 @@ def get_datos_login(usuario_id: int):
       200:
         description: Datos de login del usuario
       401:
-        description: Token ausente o invÃ¡lido
+        description: Token ausente o inválido
       404:
         description: Datos de login no encontrados
     """
@@ -351,6 +458,7 @@ def update_usuario(usuario_id: int):
     if "clave" in data:
         try:
             usuario.clave = hash_password(data["clave"])
+            usuario.debe_cambiar_clave = True
         except ValueError as error_message:
             return jsonify(error=str(error_message)), 400
     usuario.modificador = data.get("modificador", g.current_user.usuario)

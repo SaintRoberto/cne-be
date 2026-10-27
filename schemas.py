@@ -32,6 +32,12 @@ class LoginSchema(Schema):
     clave = fields.String(required=True, load_only=True)
 
 
+class ChangePasswordSchema(Schema):
+    nueva_clave = fields.String(
+        required=True, load_only=True, validate=validate.Length(min=8, max=128)
+    )
+
+
 class UsuarioUpdateSchema(Schema):
     institucion_id = fields.Integer(strict=True)
     usuario = fields.String(validate=validate.Length(min=3, max=100))
@@ -66,6 +72,7 @@ class UsuarioResponseSchema(Schema):
     cedula = fields.String(dump_only=True, allow_none=True)
     aprobado = fields.Boolean(dump_only=True, allow_none=True)
     activo = fields.Boolean(dump_only=True)
+    debe_cambiar_clave = fields.Boolean(dump_only=True)
     creador = fields.String(dump_only=True, allow_none=True)
     creacion = fields.DateTime(dump_only=True, allow_none=True)
     modificador = fields.String(dump_only=True, allow_none=True)
@@ -112,6 +119,7 @@ class InstitucionResponseSchema(Schema):
 
 register_schema = RegisterSchema()
 login_schema = LoginSchema()
+change_password_schema = ChangePasswordSchema()
 usuario_update_schema = UsuarioUpdateSchema()
 usuario_response_schema = UsuarioResponseSchema()
 usuarios_response_schema = UsuarioResponseSchema(many=True)

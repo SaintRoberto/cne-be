@@ -18,6 +18,9 @@ class Usuario(db.Model):
     institucion_id = db.Column(db.Integer, nullable=False)
     usuario = db.Column(db.String(100), nullable=False)
     clave = db.Column(db.String(255), nullable=True)
+    debe_cambiar_clave = db.Column(
+        db.Boolean, nullable=False, default=True, server_default=db.text("true")
+    )
     descripcion = db.Column(db.Text, nullable=True)
     celular = db.Column(db.String(20), nullable=True)
     correo = db.Column(db.String(150), nullable=True)

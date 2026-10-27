@@ -1040,6 +1040,7 @@ class ApiTestCase(unittest.TestCase):
                     """
                     INSERT INTO infraestructura_tipos (id, emergencia_id, nombre)
                     VALUES
+                        (0, NULL, 'Sin recinto'),
                         (2, 99, 'Recinto electoral'),
                         (3, 100, 'Bodega')
                     """
@@ -1062,6 +1063,19 @@ class ApiTestCase(unittest.TestCase):
                         latitud
                     )
                     VALUES
+                        (
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            '000000000000000',
+                            0,
+                            'NO RECINTO',
+                            NULL,
+                            0,
+                            0
+                        ),
                         (
                             130801010100001,
                             13,
@@ -1160,6 +1174,37 @@ class ApiTestCase(unittest.TestCase):
                 }
             ],
         )
+
+        sngr_registration = self.client.post(
+            "/api/usuarios/register",
+            json={
+                "institucion_id": 151,
+                "usuario": "sngr",
+                "correo": "sngr@example.com",
+                "clave": "ClaveSegura123",
+                "nombres": "Usuario",
+                "apellidos": "SNGR",
+            },
+        )
+        sngr_response = self.client.get(
+            (
+                "/api/infraestructuras/parroquia/130801/"
+                "infraestructura_tipo/2"
+            ),
+            headers={"Authorization": sngr_registration.get_json()["token"]},
+        )
+
+        self.assertEqual(sngr_response.status_code, 200)
+        self.assertEqual(sngr_response.get_json()[0], {
+            "direccion": None,
+            "id": 0,
+            "institucion": None,
+            "latitud": 0.0,
+            "longitud": 0.0,
+            "nombre": "NO RECINTO",
+            "tipologia": "Sin recinto",
+        })
+        self.assertEqual(len(sngr_response.get_json()), 3)
 
     def test_list_event_subtypes_by_event_type(self):
         with self.app.app_context():

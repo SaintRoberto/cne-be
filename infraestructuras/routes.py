@@ -15,6 +15,8 @@ from models import Canton, Infraestructura, InfraestructuraTipo, Parroquia, Prov
 
 
 MAX_IMPORT_BYTES = 5 * 1024 * 1024
+SNGR_INSTITUTION_ID = 151
+NO_VENUE_INFRASTRUCTURE_ID = 0
 REQUIRED_COLUMNS = (
     "CODIGO PROVINCIA",
     "CODIGO CANTON",
@@ -326,6 +328,7 @@ def get_infrastructures_by_parish_and_type(
     institucion_column = _optional_infrastructure_column(
         infrastructure_columns, "institucion"
     )
+    include_no_venue = g.current_user.institucion_id == SNGR_INSTITUTION_ID
     query = db.text(
         f"""
         SELECT
@@ -339,8 +342,14 @@ def get_infrastructures_by_parish_and_type(
         FROM infraestructuras i
         INNER JOIN infraestructura_tipos it
             ON it.id = i.infraestructura_tipo_id
-        WHERE i.parroquia_id = :parroquia_id
-          AND i.infraestructura_tipo_id = :infraestructura_tipo_id
+        WHERE (
+            i.parroquia_id = :parroquia_id
+            AND i.infraestructura_tipo_id = :infraestructura_tipo_id
+        )
+        OR (
+            :include_no_venue = TRUE
+            AND i.id = :no_venue_infrastructure_id
+        )
         ORDER BY i.id
         """
     )
@@ -349,6 +358,8 @@ def get_infrastructures_by_parish_and_type(
         {
             "parroquia_id": parroquia_id,
             "infraestructura_tipo_id": infraestructura_tipo_id,
+            "include_no_venue": include_no_venue,
+            "no_venue_infrastructure_id": NO_VENUE_INFRASTRUCTURE_ID,
         },
     ).mappings().all()
 
