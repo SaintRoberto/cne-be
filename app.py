@@ -26,7 +26,11 @@ SWAGGER_TEMPLATE = {
             "name": "Authorization",
             "in": "header",
             "description": "Pegue únicamente el token JWT (comienza con eyJ).",
-        }
+        },
+        "BasicAuth": {
+            "type": "basic",
+            "description": "Credenciales exclusivas de lectura para Power BI.",
+        },
     },
     "definitions": {
         "RegisterInput": {
@@ -116,6 +120,7 @@ def create_app(config_override=None) -> Flask:
     from infraestructuras import infraestructuras_bp
     from ubicaciones import ubicaciones_bp
     from usuarios import usuarios_bp
+    from reportes import reportes_bp
 
     app.register_blueprint(usuarios_bp)
     app.register_blueprint(institucion_categorias_bp)
@@ -123,6 +128,7 @@ def create_app(config_override=None) -> Flask:
     app.register_blueprint(generic_resources_bp)
     app.register_blueprint(infraestructuras_bp)
     app.register_blueprint(ubicaciones_bp)
+    app.register_blueprint(reportes_bp)
 
     @app.get("/api/health")
     def health():

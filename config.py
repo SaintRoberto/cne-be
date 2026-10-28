@@ -27,6 +27,9 @@ class Config:
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-only-change-this-secret")
     JWT_ACCESS_TOKEN_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_MINUTES", "60"))
 
+    POWERBI_API_USERNAME = os.getenv("POWERBI_API_USERNAME", "")
+    POWERBI_API_PASSWORD = os.getenv("POWERBI_API_PASSWORD", "")
+
     CORS_ORIGINS = [
         origin.strip()
         for origin in os.getenv(
