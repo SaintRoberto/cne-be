@@ -3,6 +3,7 @@ from functools import wraps
 
 from flask import current_app, jsonify, request
 
+from generic_resources.routes import list_events_for_looker_studio
 from reportes import reportes_bp
 
 
@@ -166,6 +167,34 @@ def looker_studio_affectation_records():
         description: Integracion no configurada
     """
     return _call_dashboard_view("afectacion_variable_registros_list")
+
+
+@reportes_bp.get("/looker-studio/eventos")
+@looker_studio_api_key_required
+def looker_studio_events():
+    """Eventos para Looker Studio
+    ---
+    tags: [Reportes Looker Studio]
+    security:
+      - LookerStudioApiKey: []
+    parameters:
+      - in: query
+        name: api_key
+        type: string
+        required: true
+      - in: query
+        name: provincia_id
+        type: integer
+        required: false
+    responses:
+      200:
+        description: Eventos con fecha de cierre calculada
+      401:
+        description: API key invalida
+      503:
+        description: Integracion no configurada
+    """
+    return list_events_for_looker_studio()
 
 
 @reportes_bp.get(

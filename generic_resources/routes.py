@@ -655,6 +655,45 @@ def _select_events_with_relations():
     return events, statement
 
 
+def list_events_for_looker_studio():
+    events, statement = _select_events_with_relations()
+    required_columns = _missing_columns(
+        events,
+        "evento_atencion_estado_id",
+        "modificacion",
+    )
+    if required_columns:
+        current_app.logger.error(
+            "No se puede generar el reporte de eventos para Looker Studio. "
+            "Columnas faltantes en eventos: %s",
+            required_columns,
+        )
+        return jsonify(error="Fuente de datos no disponible"), 503
+
+    provincia_id, error_response = _integer_query_arg("provincia_id")
+    if error_response is not None:
+        return error_response
+    if provincia_id is not None:
+        provincia_column = events.c.get("provincia_id")
+        if provincia_column is None:
+            current_app.logger.error("eventos no tiene la columna provincia_id")
+            return jsonify(error="Fuente de datos no disponible"), 503
+        statement = statement.where(provincia_column == provincia_id)
+
+    close_date = case(
+        (
+            events.c.evento_atencion_estado_id == 3,
+            events.c.modificacion,
+        ),
+        else_=None,
+    ).label("fecha_cierre_evento")
+    order_column = events.c.id if "id" in events.c else next(iter(events.c))
+    rows = db.session.execute(
+        statement.add_columns(close_date).order_by(order_column)
+    ).mappings().all()
+    return jsonify([_row_to_dict(dict(row)) for row in rows])
+
+
 def _make_list_events_with_relations():
     @jwt_required
     def list_events_with_relations():
