@@ -111,9 +111,9 @@ class LookerStudioReportTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         records = response.get_json()
         self.assertEqual(records[0]["evento_atencion_estado_id"], 3)
-        self.assertEqual(records[0]["fecha_cierre_evento"], "2026-11-05T10:15:00")
+        self.assertEqual(records[0]["Fecha fin del evento"], "2026-11-05T10:15:00")
         self.assertEqual(records[1]["evento_atencion_estado_id"], 2)
-        self.assertIsNone(records[1]["fecha_cierre_evento"])
+        self.assertIsNone(records[1]["Fecha fin del evento"])
 
     def test_looker_studio_report_returns_503_without_server_configuration(self):
         self.app.config["LOOKER_STUDIO_API_KEY"] = ""

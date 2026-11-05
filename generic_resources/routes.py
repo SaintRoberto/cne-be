@@ -686,7 +686,7 @@ def list_events_for_looker_studio():
             events.c.modificacion,
         ),
         else_=None,
-    ).label("fecha_cierre_evento")
+    ).label("Fecha fin del evento")
     order_column = events.c.id if "id" in events.c else next(iter(events.c))
     rows = db.session.execute(
         statement.add_columns(close_date).order_by(order_column)
