@@ -34,6 +34,23 @@ def powerbi_basic_required(view):
     return wrapped
 
 
+def looker_studio_api_key_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        expected_api_key = current_app.config.get("LOOKER_STUDIO_API_KEY", "")
+        if not expected_api_key:
+            current_app.logger.error("LOOKER_STUDIO_API_KEY no esta configurada")
+            return jsonify(error="La integracion de Looker Studio no esta configurada"), 503
+
+        supplied_api_key = request.args.get("api_key", "")
+        if not hmac.compare_digest(supplied_api_key, expected_api_key):
+            return jsonify(error="API key de Looker Studio invalida"), 401
+
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 def _call_dashboard_view(endpoint: str, **path_parameters):
     dashboard_view = current_app.view_functions.get(
         f"generic_resources.{endpoint}"
@@ -123,6 +140,30 @@ def powerbi_affectation_records():
         description: Registros de variables de afectacion
       401:
         description: Credenciales invalidas
+    """
+    return _call_dashboard_view("afectacion_variable_registros_list")
+
+
+@reportes_bp.get("/looker-studio/afectacion-variable-registros")
+@looker_studio_api_key_required
+def looker_studio_affectation_records():
+    """Registros de afectaciones para Looker Studio
+    ---
+    tags: [Reportes Looker Studio]
+    security:
+      - LookerStudioApiKey: []
+    parameters:
+      - in: query
+        name: api_key
+        type: string
+        required: true
+    responses:
+      200:
+        description: Registros de variables de afectacion
+      401:
+        description: API key invalida
+      503:
+        description: Integracion no configurada
     """
     return _call_dashboard_view("afectacion_variable_registros_list")
 

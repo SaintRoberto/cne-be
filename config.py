@@ -29,6 +29,7 @@ class Config:
 
     POWERBI_API_USERNAME = os.getenv("POWERBI_API_USERNAME", "")
     POWERBI_API_PASSWORD = os.getenv("POWERBI_API_PASSWORD", "")
+    LOOKER_STUDIO_API_KEY = os.getenv("LOOKER_STUDIO_API_KEY", "")
 
     CORS_ORIGINS = [
         origin.strip()

@@ -31,6 +31,12 @@ SWAGGER_TEMPLATE = {
             "type": "basic",
             "description": "Credenciales exclusivas de lectura para Power BI.",
         },
+        "LookerStudioApiKey": {
+            "type": "apiKey",
+            "name": "api_key",
+            "in": "query",
+            "description": "Clave de lectura para la integracion con Looker Studio.",
+        },
     },
     "definitions": {
         "RegisterInput": {
