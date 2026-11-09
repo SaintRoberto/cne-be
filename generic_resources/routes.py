@@ -287,15 +287,16 @@ def _row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _date_and_time_values(value: Any) -> tuple[str | None, str | None]:
+    # Looker Studio's basic Date type expects YYYYMMDD, without separators.
     if value is None:
         return None, None
     if isinstance(value, datetime):
-        return value.date().isoformat(), value.timetz().isoformat()
+        return value.strftime("%Y%m%d"), value.timetz().isoformat()
     if isinstance(value, date):
-        return value.isoformat(), None
+        return value.strftime("%Y%m%d"), None
 
     parsed_value = datetime.fromisoformat(str(value))
-    return parsed_value.date().isoformat(), parsed_value.timetz().isoformat()
+    return parsed_value.strftime("%Y%m%d"), parsed_value.timetz().isoformat()
 
 
 def _coordinate_value(latitude: Any, longitude: Any) -> str | None:
