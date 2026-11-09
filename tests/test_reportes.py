@@ -29,6 +29,9 @@ class LookerStudioReportTestCase(unittest.TestCase):
                     CREATE TABLE eventos (
                         id INTEGER PRIMARY KEY,
                         evento_atencion_estado_id INTEGER,
+                        evento_fecha TIMESTAMP,
+                        latitud NUMERIC(15, 12),
+                        longitud NUMERIC(15, 12),
                         modificacion TIMESTAMP
                     )
                     """
@@ -49,10 +52,31 @@ class LookerStudioReportTestCase(unittest.TestCase):
                 text(
                     """
                     INSERT INTO eventos
-                        (id, evento_atencion_estado_id, modificacion)
+                        (
+                            id,
+                            evento_atencion_estado_id,
+                            evento_fecha,
+                            latitud,
+                            longitud,
+                            modificacion
+                        )
                     VALUES
-                        (10, 3, '2026-11-05 10:15:00'),
-                        (20, 2, '2026-11-05 11:30:00')
+                        (
+                            10,
+                            3,
+                            '2026-11-01 08:30:45',
+                            -0.250123,
+                            -79.16583,
+                            '2026-11-05 10:15:00'
+                        ),
+                        (
+                            20,
+                            2,
+                            '2026-11-02 11:30:00',
+                            NULL,
+                            NULL,
+                            '2026-11-05 11:30:00'
+                        )
                     """
                 )
             )
@@ -102,7 +126,7 @@ class LookerStudioReportTestCase(unittest.TestCase):
         self.assertNotIn("evento_atencion_estado_id", records[0])
         self.assertNotIn("fecha_cierre_evento", records[0])
 
-    def test_looker_studio_events_include_close_date(self):
+    def test_looker_studio_events_format_dates_times_and_coordinate(self):
         response = self.client.get(
             "/api/reportes/looker-studio/eventos",
             query_string={"api_key": "test-looker-api-key"},
@@ -111,9 +135,18 @@ class LookerStudioReportTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         records = response.get_json()
         self.assertEqual(records[0]["evento_atencion_estado_id"], 3)
-        self.assertEqual(records[0]["Fecha fin del evento"], "2026-11-05T10:15:00")
+        self.assertEqual(records[0]["evento_fecha"], "2026-11-01")
+        self.assertEqual(records[0]["hora_evento"], "08:30:45")
+        self.assertEqual(records[0]["fecha_fin_evento"], "2026-11-05")
+        self.assertEqual(records[0]["hora_fin_evento"], "10:15:00")
+        self.assertEqual(records[0]["coordenada"], "-0.250123,-79.16583")
+        self.assertNotIn("Fecha fin del evento", records[0])
+        self.assertNotIn("latitud", records[0])
+        self.assertNotIn("longitud", records[0])
         self.assertEqual(records[1]["evento_atencion_estado_id"], 2)
-        self.assertIsNone(records[1]["Fecha fin del evento"])
+        self.assertIsNone(records[1]["fecha_fin_evento"])
+        self.assertIsNone(records[1]["hora_fin_evento"])
+        self.assertIsNone(records[1]["coordenada"])
 
     def test_looker_studio_report_returns_503_without_server_configuration(self):
         self.app.config["LOOKER_STUDIO_API_KEY"] = ""

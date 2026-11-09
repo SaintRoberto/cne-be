@@ -286,6 +286,43 @@ def _row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
     return {key: _json_value(value) for key, value in row.items()}
 
 
+def _date_and_time_values(value: Any) -> tuple[str | None, str | None]:
+    if value is None:
+        return None, None
+    if isinstance(value, datetime):
+        return value.date().isoformat(), value.timetz().isoformat()
+    if isinstance(value, date):
+        return value.isoformat(), None
+
+    parsed_value = datetime.fromisoformat(str(value))
+    return parsed_value.date().isoformat(), parsed_value.timetz().isoformat()
+
+
+def _coordinate_value(latitude: Any, longitude: Any) -> str | None:
+    if latitude is None or longitude is None:
+        return None
+
+    def coordinate_component(value: Any) -> str:
+        if isinstance(value, Decimal):
+            return format(value, "f").rstrip("0").rstrip(".") or "0"
+        return str(value)
+
+    return f"{coordinate_component(latitude)},{coordinate_component(longitude)}"
+
+
+def _event_row_for_looker_studio(row: dict[str, Any]) -> dict[str, Any]:
+    event_date, event_time = _date_and_time_values(row.get("evento_fecha"))
+    end_date, end_time = _date_and_time_values(row.pop("fecha_fin_evento", None))
+    coordinate = _coordinate_value(row.pop("latitud", None), row.pop("longitud", None))
+
+    row["evento_fecha"] = event_date
+    row["hora_evento"] = event_time
+    row["fecha_fin_evento"] = end_date
+    row["hora_fin_evento"] = end_time
+    row["coordenada"] = coordinate
+    return _row_to_dict(row)
+
+
 def _summary_number(value: Any) -> int | float:
     if value is None:
         return 0
@@ -660,6 +697,9 @@ def list_events_for_looker_studio():
     required_columns = _missing_columns(
         events,
         "evento_atencion_estado_id",
+        "evento_fecha",
+        "latitud",
+        "longitud",
         "modificacion",
     )
     if required_columns:
@@ -686,12 +726,12 @@ def list_events_for_looker_studio():
             events.c.modificacion,
         ),
         else_=None,
-    ).label("Fecha fin del evento")
+    ).label("fecha_fin_evento")
     order_column = events.c.id if "id" in events.c else next(iter(events.c))
     rows = db.session.execute(
         statement.add_columns(close_date).order_by(order_column)
     ).mappings().all()
-    return jsonify([_row_to_dict(dict(row)) for row in rows])
+    return jsonify([_event_row_for_looker_studio(dict(row)) for row in rows])
 
 
 def _make_list_events_with_relations():
