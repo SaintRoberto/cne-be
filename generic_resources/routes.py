@@ -286,28 +286,25 @@ def _row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
     return {key: _json_value(value) for key, value in row.items()}
 
 
-def _date_and_time_values(value: Any) -> tuple[str | None, str | None]:
+def _date_and_time_values(
+    value: Any, *, basic_date: bool = False
+) -> tuple[str | None, str | None]:
     if value is None:
         return None, None
     if isinstance(value, datetime):
-        return value.date().isoformat(), value.timetz().isoformat()
+        date_value = value.strftime("%Y%m%d") if basic_date else value.date().isoformat()
+        return date_value, value.timetz().isoformat()
     if isinstance(value, date):
-        return value.isoformat(), None
+        date_value = value.strftime("%Y%m%d") if basic_date else value.isoformat()
+        return date_value, None
 
     parsed_value = datetime.fromisoformat(str(value))
-    return parsed_value.date().isoformat(), parsed_value.timetz().isoformat()
-
-
-def _datetime_value_for_looker_studio(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        parsed_value = value
-    elif isinstance(value, date):
-        parsed_value = datetime.combine(value, datetime.min.time())
-    else:
-        parsed_value = datetime.fromisoformat(str(value))
-    return parsed_value.strftime("%Y-%m-%d %H:%M:%S")
+    date_value = (
+        parsed_value.strftime("%Y%m%d")
+        if basic_date
+        else parsed_value.date().isoformat()
+    )
+    return date_value, parsed_value.timetz().isoformat()
 
 
 def _coordinate_value(latitude: Any, longitude: Any) -> str | None:
@@ -323,15 +320,17 @@ def _coordinate_value(latitude: Any, longitude: Any) -> str | None:
 
 
 def _event_row_for_looker_studio(row: dict[str, Any]) -> dict[str, Any]:
-    event_value = row.get("evento_fecha")
-    end_value = row.pop("fecha_fin_evento", None)
-    _, event_time = _date_and_time_values(event_value)
-    _, end_time = _date_and_time_values(end_value)
+    event_date, event_time = _date_and_time_values(
+        row.get("evento_fecha"), basic_date=True
+    )
+    end_date, end_time = _date_and_time_values(
+        row.pop("fecha_fin_evento", None), basic_date=True
+    )
     coordinate = _coordinate_value(row.pop("latitud", None), row.pop("longitud", None))
 
-    row["evento_fecha"] = _datetime_value_for_looker_studio(event_value)
+    row["evento_fecha"] = event_date
     row["hora_evento"] = event_time
-    row["fecha_fin_evento"] = _datetime_value_for_looker_studio(end_value)
+    row["fecha_fin_evento"] = end_date
     row["hora_fin_evento"] = end_time
     row["coordenada"] = coordinate
     return _row_to_dict(row)
