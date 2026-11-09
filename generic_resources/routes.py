@@ -323,6 +323,13 @@ def _event_row_for_looker_studio(row: dict[str, Any]) -> dict[str, Any]:
     return _row_to_dict(row)
 
 
+def _affectation_row_for_looker_studio(row: dict[str, Any]) -> dict[str, Any]:
+    creation_date, creation_time = _date_and_time_values(row.get("creacion"))
+    row["creacion"] = creation_date
+    row["hora_creacion"] = creation_time
+    return _row_to_dict(row)
+
+
 def _summary_number(value: Any) -> int | float:
     if value is None:
         return 0
@@ -666,6 +673,22 @@ def _make_list_all_emergencies():
         description: Token ausente o invalido
     """
     return list_all_emergencies
+
+
+def list_affectation_records_for_looker_studio():
+    records = _get_table("afectacion_variable_registros")
+    if "creacion" not in records.c:
+        current_app.logger.error(
+            "No se puede generar el reporte de afectaciones para Looker Studio. "
+            "Columna faltante en afectacion_variable_registros: creacion"
+        )
+        return jsonify(error="Fuente de datos no disponible"), 503
+
+    order_column = records.c.id if "id" in records.c else next(iter(records.c))
+    rows = db.session.execute(
+        select(records).order_by(order_column)
+    ).mappings().all()
+    return jsonify([_affectation_row_for_looker_studio(dict(row)) for row in rows])
 
 
 def _select_events_with_relations():

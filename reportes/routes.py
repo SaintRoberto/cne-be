@@ -3,7 +3,10 @@ from functools import wraps
 
 from flask import current_app, jsonify, request
 
-from generic_resources.routes import list_events_for_looker_studio
+from generic_resources.routes import (
+    list_affectation_records_for_looker_studio,
+    list_events_for_looker_studio,
+)
 from reportes import reportes_bp
 
 
@@ -166,7 +169,7 @@ def looker_studio_affectation_records():
       503:
         description: Integracion no configurada
     """
-    return _call_dashboard_view("afectacion_variable_registros_list")
+    return list_affectation_records_for_looker_studio()
 
 
 @reportes_bp.get("/looker-studio/eventos")

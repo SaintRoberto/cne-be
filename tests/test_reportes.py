@@ -43,7 +43,8 @@ class LookerStudioReportTestCase(unittest.TestCase):
                     CREATE TABLE afectacion_variable_registros (
                         id INTEGER PRIMARY KEY,
                         evento_id INTEGER NOT NULL,
-                        cantidad INTEGER NOT NULL
+                        cantidad INTEGER NOT NULL,
+                        creacion TIMESTAMP
                     )
                     """
                 )
@@ -64,10 +65,10 @@ class LookerStudioReportTestCase(unittest.TestCase):
                         (
                             10,
                             3,
-                            '2026-11-01 08:30:45',
+                            '2026-11-01 00:00:00-05:00',
                             -0.250123,
                             -79.16583,
-                            '2026-11-05 10:15:00'
+                            '2026-11-05 15:19:36.449466-05:00'
                         ),
                         (
                             20,
@@ -84,10 +85,10 @@ class LookerStudioReportTestCase(unittest.TestCase):
                 text(
                     """
                     INSERT INTO afectacion_variable_registros
-                        (id, evento_id, cantidad)
+                        (id, evento_id, cantidad, creacion)
                     VALUES
-                        (1, 10, 5),
-                        (2, 20, 8)
+                        (1, 10, 5, '2026-09-28 10:00:52.181237-05:00'),
+                        (2, 20, 8, NULL)
                     """
                 )
             )
@@ -115,7 +116,7 @@ class LookerStudioReportTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
-    def test_looker_studio_affectation_report_keeps_original_data(self):
+    def test_looker_studio_affectation_report_formats_creation_date_and_time(self):
         response = self.client.get(
             "/api/reportes/looker-studio/afectacion-variable-registros",
             query_string={"api_key": "test-looker-api-key"},
@@ -123,6 +124,10 @@ class LookerStudioReportTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         records = response.get_json()
+        self.assertEqual(records[0]["creacion"], "2026-09-28")
+        self.assertEqual(records[0]["hora_creacion"], "10:00:52.181237-05:00")
+        self.assertIsNone(records[1]["creacion"])
+        self.assertIsNone(records[1]["hora_creacion"])
         self.assertNotIn("evento_atencion_estado_id", records[0])
         self.assertNotIn("fecha_cierre_evento", records[0])
 
@@ -136,9 +141,9 @@ class LookerStudioReportTestCase(unittest.TestCase):
         records = response.get_json()
         self.assertEqual(records[0]["evento_atencion_estado_id"], 3)
         self.assertEqual(records[0]["evento_fecha"], "2026-11-01")
-        self.assertEqual(records[0]["hora_evento"], "08:30:45")
+        self.assertEqual(records[0]["hora_evento"], "00:00:00-05:00")
         self.assertEqual(records[0]["fecha_fin_evento"], "2026-11-05")
-        self.assertEqual(records[0]["hora_fin_evento"], "10:15:00")
+        self.assertEqual(records[0]["hora_fin_evento"], "15:19:36.449466-05:00")
         self.assertEqual(records[0]["coordenada"], "-0.250123,-79.16583")
         self.assertNotIn("Fecha fin del evento", records[0])
         self.assertNotIn("latitud", records[0])
