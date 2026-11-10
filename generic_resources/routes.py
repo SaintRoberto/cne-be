@@ -690,16 +690,37 @@ def _make_list_all_emergencies():
 
 def list_affectation_records_for_looker_studio():
     records = _get_table("afectacion_variable_registros")
-    if "creacion" not in records.c:
+    variables = _get_table("afectacion_variables")
+    missing_columns = {
+        "afectacion_variable_registros": _missing_columns(
+            records, "creacion", "afectacion_variable_id"
+        ),
+        "afectacion_variables": _missing_columns(variables, "id", "nombre"),
+    }
+    missing_columns = {
+        table_name: columns
+        for table_name, columns in missing_columns.items()
+        if columns
+    }
+    if missing_columns:
         current_app.logger.error(
             "No se puede generar el reporte de afectaciones para Looker Studio. "
-            "Columna faltante en afectacion_variable_registros: creacion"
+            "Columnas faltantes: %s",
+            missing_columns,
         )
         return jsonify(error="Fuente de datos no disponible"), 503
 
     order_column = records.c.id if "id" in records.c else next(iter(records.c))
     rows = db.session.execute(
-        select(records).order_by(order_column)
+        select(records)
+        .outerjoin(
+            variables,
+            records.c.afectacion_variable_id == variables.c.id,
+        )
+        .add_columns(
+            variables.c.nombre.label("afectacion_variable_nombre")
+        )
+        .order_by(order_column)
     ).mappings().all()
     return jsonify([_affectation_row_for_looker_studio(dict(row)) for row in rows])
 

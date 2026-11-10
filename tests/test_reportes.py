@@ -19,7 +19,11 @@ class LookerStudioReportTestCase(unittest.TestCase):
         )
         self.client = self.app.test_client()
         with self.app.app_context():
-            for table_name in ("eventos", "afectacion_variable_registros"):
+            for table_name in (
+                "eventos",
+                "afectacion_variable_registros",
+                "afectacion_variables",
+            ):
                 table = db.metadata.tables.get(table_name)
                 if table is not None:
                     db.metadata.remove(table)
@@ -40,9 +44,20 @@ class LookerStudioReportTestCase(unittest.TestCase):
             db.session.execute(
                 text(
                     """
+                    CREATE TABLE afectacion_variables (
+                        id INTEGER PRIMARY KEY,
+                        nombre VARCHAR(255) NOT NULL
+                    )
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
                     CREATE TABLE afectacion_variable_registros (
                         id INTEGER PRIMARY KEY,
                         evento_id INTEGER NOT NULL,
+                        afectacion_variable_id INTEGER NOT NULL,
                         cantidad INTEGER NOT NULL,
                         creacion TIMESTAMP
                     )
@@ -84,11 +99,19 @@ class LookerStudioReportTestCase(unittest.TestCase):
             db.session.execute(
                 text(
                     """
+                    INSERT INTO afectacion_variables (id, nombre)
+                    VALUES (1, 'Personas afectadas')
+                    """
+                )
+            )
+            db.session.execute(
+                text(
+                    """
                     INSERT INTO afectacion_variable_registros
-                        (id, evento_id, cantidad, creacion)
+                        (id, evento_id, afectacion_variable_id, cantidad, creacion)
                     VALUES
-                        (1, 10, 5, '2026-09-28 10:00:52.181237-05:00'),
-                        (2, 20, 8, NULL)
+                        (1, 10, 1, 5, '2026-09-28 10:00:52.181237-05:00'),
+                        (2, 20, 999, 8, NULL)
                     """
                 )
             )
@@ -124,10 +147,14 @@ class LookerStudioReportTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         records = response.get_json()
+        self.assertEqual(
+            records[0]["afectacion_variable_nombre"], "Personas afectadas"
+        )
         self.assertEqual(records[0]["creacion"], "2026-09-28")
         self.assertEqual(records[0]["hora_creacion"], "10:00:52.181237-05:00")
         self.assertIsNone(records[1]["creacion"])
         self.assertIsNone(records[1]["hora_creacion"])
+        self.assertIsNone(records[1]["afectacion_variable_nombre"])
         self.assertNotIn("evento_atencion_estado_id", records[0])
         self.assertNotIn("fecha_cierre_evento", records[0])
 
