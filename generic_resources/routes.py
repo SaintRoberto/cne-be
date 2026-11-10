@@ -21,6 +21,7 @@ from sqlalchemy import (
     literal,
     or_,
     select,
+    text,
     true,
 )
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -695,7 +696,7 @@ def list_affectation_records_for_looker_studio():
     variables = _get_table("afectacion_variables")
     missing_columns = {
         "afectacion_variable_registros": _missing_columns(
-            records, "creacion", "afectacion_variable_id"
+            records, "evento_id", "creacion", "afectacion_variable_id"
         ),
         "afectacion_variables": _missing_columns(variables, "id", "nombre"),
     }
@@ -751,7 +752,69 @@ def _select_events_with_relations():
     return events, statement
 
 
+def _looker_event_rows_from_stored_procedure(
+    provincia_id: int | None,
+) -> list[dict[str, Any]]:
+    db.session.execute(
+        text("CALL sp_validar_looker_eventos_afectaciones(:provincia_id)"),
+        {"provincia_id": provincia_id},
+    )
+    rows = db.session.execute(
+        text("SELECT * FROM tmp_looker_eventos_afectaciones ORDER BY id")
+    ).mappings().all()
+
+    event_columns = set(_get_table("eventos").c.keys())
+    formatted_rows = []
+    for stored_row in rows:
+        row = dict(stored_row)
+        affectation_columns = [
+            column_name
+            for column_name in row
+            if column_name not in event_columns
+        ]
+        row["fecha_fin_evento"] = (
+            row.get("modificacion")
+            if row.get("evento_atencion_estado_id") == 3
+            else None
+        )
+        formatted_row = _event_row_for_looker_studio(row)
+        ordered_row = {"id": formatted_row["id"]}
+        ordered_row.update(
+            (column_name, value)
+            for column_name, value in formatted_row.items()
+            if column_name != "id"
+            and column_name not in affectation_columns
+        )
+        ordered_row.update(
+            (column_name, formatted_row[column_name])
+            for column_name in affectation_columns
+        )
+        formatted_rows.append(ordered_row)
+
+    return formatted_rows
+
+
 def list_events_for_looker_studio():
+    provincia_id, error_response = _integer_query_arg("provincia_id")
+    if error_response is not None:
+        return error_response
+
+    if db.engine.dialect.name == "postgresql":
+        try:
+            event_rows = _looker_event_rows_from_stored_procedure(provincia_id)
+        except SQLAlchemyError:
+            db.session.rollback()
+            current_app.logger.exception(
+                "No se pudo ejecutar el procedimiento de eventos para Looker Studio"
+            )
+            return jsonify(error="Fuente de datos no disponible"), 503
+        return current_app.response_class(
+            current_app.json.dumps(event_rows, sort_keys=False),
+            mimetype=current_app.json.mimetype,
+        )
+
+    # SQLite no soporta procedimientos almacenados. Esta rama existe para la
+    # suite automatizada; PostgreSQL siempre usa el SP anterior.
     events, statement = _select_events_with_relations()
     affectation_records = _get_table("afectacion_variable_registros")
     affectation_variables = _get_table("afectacion_variables")
@@ -768,8 +831,8 @@ def list_events_for_looker_studio():
         "afectacion_variable_registros": _missing_columns(
             affectation_records,
             "evento_id",
-            "creacion",
             "afectacion_variable_id",
+            "cantidad",
         ),
         "afectacion_variables": _missing_columns(
             affectation_variables,
@@ -792,9 +855,6 @@ def list_events_for_looker_studio():
         )
         return jsonify(error="Fuente de datos no disponible"), 503
 
-    provincia_id, error_response = _integer_query_arg("provincia_id")
-    if error_response is not None:
-        return error_response
     if provincia_id is not None:
         provincia_column = events.c.get("provincia_id")
         if provincia_column is None:
@@ -815,41 +875,64 @@ def list_events_for_looker_studio():
     ).mappings().all()
     event_rows = [_event_row_for_looker_studio(dict(row)) for row in rows]
 
-    affectations_by_event: dict[Any, list[dict[str, Any]]] = {}
+    affectation_variables_rows = db.session.execute(
+        select(
+            affectation_variables.c.id,
+            affectation_variables.c.nombre,
+        ).order_by(affectation_variables.c.id)
+    ).mappings().all()
+    affectation_columns = {
+        variable["id"]: variable["nombre"]
+        for variable in affectation_variables_rows
+    }
+
+    affectations_by_event: dict[Any, dict[str, int | float]] = {}
     event_ids = [event["id"] for event in event_rows]
     if event_ids:
-        affectation_order_column = (
-            affectation_records.c.id
-            if "id" in affectation_records.c
-            else next(iter(affectation_records.c))
-        )
         affectation_rows = db.session.execute(
-            select(affectation_records)
-            .outerjoin(
-                affectation_variables,
-                affectation_records.c.afectacion_variable_id
-                == affectation_variables.c.id,
-            )
-            .add_columns(
-                affectation_variables.c.nombre.label(
-                    "afectacion_variable_nombre"
-                )
+            select(
+                affectation_records.c.evento_id,
+                affectation_records.c.afectacion_variable_id,
+                func.sum(affectation_records.c.cantidad).label("cantidad"),
             )
             .where(affectation_records.c.evento_id.in_(event_ids))
-            .order_by(affectation_order_column)
+            .group_by(
+                affectation_records.c.evento_id,
+                affectation_records.c.afectacion_variable_id,
+            )
         ).mappings().all()
         for affectation_row in affectation_rows:
-            affectation = _affectation_row_for_looker_studio(
-                dict(affectation_row)
+            column_name = affectation_columns.get(
+                affectation_row["afectacion_variable_id"]
             )
-            affectations_by_event.setdefault(
-                affectation["evento_id"], []
-            ).append(affectation)
+            if column_name is None:
+                continue
+            event_affectations = affectations_by_event.setdefault(
+                affectation_row["evento_id"], {}
+            )
+            event_affectations[column_name] = (
+                event_affectations.get(column_name, 0)
+                + _summary_number(affectation_row["cantidad"])
+            )
 
+    ordered_event_rows = []
     for event in event_rows:
-        event["afectaciones"] = affectations_by_event.get(event["id"], [])
+        event_affectations = affectations_by_event.get(event["id"], {})
+        ordered_event = {"id": event["id"]}
+        ordered_event.update(
+            (field_name, value)
+            for field_name, value in event.items()
+            if field_name != "id"
+        )
+        for column_name in affectation_columns.values():
+            quantity = event_affectations.get(column_name, 0)
+            ordered_event[column_name] = quantity
+        ordered_event_rows.append(ordered_event)
 
-    return jsonify(event_rows)
+    return current_app.response_class(
+        current_app.json.dumps(ordered_event_rows, sort_keys=False),
+        mimetype=current_app.json.mimetype,
+    )
 
 
 def _make_list_events_with_relations():

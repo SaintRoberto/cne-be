@@ -100,7 +100,10 @@ class LookerStudioReportTestCase(unittest.TestCase):
                 text(
                     """
                     INSERT INTO afectacion_variables (id, nombre)
-                    VALUES (1, 'Personas afectadas')
+                    VALUES
+                        (1, 'Personas afectadas'),
+                        (2, 'Animales muertos'),
+                        (23, 'Centros de Salud Destruidos')
                     """
                 )
             )
@@ -111,7 +114,7 @@ class LookerStudioReportTestCase(unittest.TestCase):
                         (id, evento_id, afectacion_variable_id, cantidad, creacion)
                     VALUES
                         (1, 10, 1, 5, '2026-09-28 10:00:52.181237-05:00'),
-                        (2, 20, 999, 8, NULL),
+                        (2, 20, 23, 90, NULL),
                         (3, 10, 1, 12, '2026-10-01 08:30:00-05:00')
                     """
                 )
@@ -151,11 +154,16 @@ class LookerStudioReportTestCase(unittest.TestCase):
         self.assertEqual(
             records[0]["afectacion_variable_nombre"], "Personas afectadas"
         )
+        self.assertEqual(records[0]["evento_id"], 10)
         self.assertEqual(records[0]["creacion"], "20260928")
         self.assertEqual(records[0]["hora_creacion"], "10:00:52.181237-05:00")
         self.assertIsNone(records[1]["creacion"])
         self.assertIsNone(records[1]["hora_creacion"])
-        self.assertIsNone(records[1]["afectacion_variable_nombre"])
+        self.assertEqual(
+            records[1]["afectacion_variable_nombre"],
+            "Centros de Salud Destruidos",
+        )
+        self.assertEqual(records[1]["evento_id"], 20)
         self.assertNotIn("evento_atencion_estado_id", records[0])
         self.assertNotIn("fecha_cierre_evento", records[0])
 
@@ -167,6 +175,17 @@ class LookerStudioReportTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         records = response.get_json()
+        self.assertEqual([record["id"] for record in records], [10, 20])
+        self.assertEqual(next(iter(records[0])), "id")
+        self.assertNotIn("es_total", records[0])
+        self.assertEqual(
+            list(records[0])[-3:],
+            [
+                "Personas afectadas",
+                "Animales muertos",
+                "Centros de Salud Destruidos",
+            ],
+        )
         self.assertEqual(records[0]["evento_atencion_estado_id"], 3)
         self.assertEqual(records[0]["evento_fecha"], "20261101")
         self.assertEqual(records[0]["hora_evento"], "00:00:00-05:00")
@@ -176,29 +195,21 @@ class LookerStudioReportTestCase(unittest.TestCase):
         self.assertNotIn("Fecha fin del evento", records[0])
         self.assertNotIn("latitud", records[0])
         self.assertNotIn("longitud", records[0])
-        self.assertEqual(
-            [affectation["id"] for affectation in records[0]["afectaciones"]],
-            [1, 3],
-        )
-        self.assertEqual(
-            records[0]["afectaciones"][0]["afectacion_variable_nombre"],
-            "Personas afectadas",
-        )
-        self.assertEqual(
-            records[0]["afectaciones"][0]["creacion"], "20260928"
-        )
-        self.assertEqual(
-            records[0]["afectaciones"][0]["hora_creacion"],
-            "10:00:52.181237-05:00",
-        )
+        self.assertEqual(records[0]["Personas afectadas"], 17)
+        self.assertEqual(records[0]["Animales muertos"], 0)
+        self.assertEqual(records[0]["Centros de Salud Destruidos"], 0)
+        self.assertNotIn("Total Afectaciones", records[0])
+        self.assertNotIn("afectaciones", records[0])
+        self.assertNotIn("costo", records[0])
         self.assertEqual(records[1]["evento_atencion_estado_id"], 2)
         self.assertIsNone(records[1]["fecha_fin_evento"])
         self.assertIsNone(records[1]["hora_fin_evento"])
         self.assertIsNone(records[1]["coordenada"])
-        self.assertEqual(
-            [affectation["id"] for affectation in records[1]["afectaciones"]],
-            [2],
-        )
+        self.assertEqual(records[1]["Personas afectadas"], 0)
+        self.assertEqual(records[1]["Animales muertos"], 0)
+        self.assertEqual(records[1]["Centros de Salud Destruidos"], 90)
+        self.assertNotIn("afectaciones", records[1])
+        self.assertNotIn("es_total", records[1])
 
     def test_looker_studio_report_returns_503_without_server_configuration(self):
         self.app.config["LOOKER_STUDIO_API_KEY"] = ""
