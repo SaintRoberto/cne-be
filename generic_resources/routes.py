@@ -763,8 +763,28 @@ def _looker_event_rows_from_stored_procedure(
         text("SELECT * FROM tmp_looker_eventos_afectaciones ORDER BY id")
     ).mappings().all()
 
-    event_columns = set(_get_table("eventos").c.keys())
+    event_columns = set(_get_table("eventos").c.keys()) | {
+        "provincia_nombre",
+        "canton_nombre",
+        "parroquia_nombre",
+        "infraestructura_nombre",
+        "recinto_nombre",
+    }
     formatted_rows = []
+    related_names_by_id = {
+        "provincia_id": ("provincia_nombre",),
+        "canton_id": ("canton_nombre",),
+        "parroquia_id": ("parroquia_nombre",),
+        "infraestructura_id": (
+            "infraestructura_nombre",
+            "recinto_nombre",
+        ),
+    }
+    related_name_columns = {
+        column_name
+        for column_names in related_names_by_id.values()
+        for column_name in column_names
+    }
     for stored_row in rows:
         row = dict(stored_row)
         affectation_columns = [
@@ -779,12 +799,16 @@ def _looker_event_rows_from_stored_procedure(
         )
         formatted_row = _event_row_for_looker_studio(row)
         ordered_row = {"id": formatted_row["id"]}
-        ordered_row.update(
-            (column_name, value)
-            for column_name, value in formatted_row.items()
-            if column_name != "id"
-            and column_name not in affectation_columns
-        )
+        for column_name, value in formatted_row.items():
+            if (
+                column_name == "id"
+                or column_name in affectation_columns
+                or column_name in related_name_columns
+            ):
+                continue
+            ordered_row[column_name] = value
+            for related_name in related_names_by_id.get(column_name, ()):
+                ordered_row[related_name] = formatted_row.get(related_name)
         ordered_row.update(
             (column_name, formatted_row[column_name])
             for column_name in affectation_columns
