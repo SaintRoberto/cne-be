@@ -191,7 +191,7 @@ def looker_studio_events():
         required: false
     responses:
       200:
-        description: Eventos con fecha de cierre calculada
+        description: Eventos con fecha de cierre calculada y sus afectaciones
       401:
         description: API key invalida
       503:

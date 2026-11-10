@@ -111,7 +111,8 @@ class LookerStudioReportTestCase(unittest.TestCase):
                         (id, evento_id, afectacion_variable_id, cantidad, creacion)
                     VALUES
                         (1, 10, 1, 5, '2026-09-28 10:00:52.181237-05:00'),
-                        (2, 20, 999, 8, NULL)
+                        (2, 20, 999, 8, NULL),
+                        (3, 10, 1, 12, '2026-10-01 08:30:00-05:00')
                     """
                 )
             )
@@ -150,7 +151,7 @@ class LookerStudioReportTestCase(unittest.TestCase):
         self.assertEqual(
             records[0]["afectacion_variable_nombre"], "Personas afectadas"
         )
-        self.assertEqual(records[0]["creacion"], "2026-09-28")
+        self.assertEqual(records[0]["creacion"], "20260928")
         self.assertEqual(records[0]["hora_creacion"], "10:00:52.181237-05:00")
         self.assertIsNone(records[1]["creacion"])
         self.assertIsNone(records[1]["hora_creacion"])
@@ -175,10 +176,29 @@ class LookerStudioReportTestCase(unittest.TestCase):
         self.assertNotIn("Fecha fin del evento", records[0])
         self.assertNotIn("latitud", records[0])
         self.assertNotIn("longitud", records[0])
+        self.assertEqual(
+            [affectation["id"] for affectation in records[0]["afectaciones"]],
+            [1, 3],
+        )
+        self.assertEqual(
+            records[0]["afectaciones"][0]["afectacion_variable_nombre"],
+            "Personas afectadas",
+        )
+        self.assertEqual(
+            records[0]["afectaciones"][0]["creacion"], "20260928"
+        )
+        self.assertEqual(
+            records[0]["afectaciones"][0]["hora_creacion"],
+            "10:00:52.181237-05:00",
+        )
         self.assertEqual(records[1]["evento_atencion_estado_id"], 2)
         self.assertIsNone(records[1]["fecha_fin_evento"])
         self.assertIsNone(records[1]["hora_fin_evento"])
         self.assertIsNone(records[1]["coordenada"])
+        self.assertEqual(
+            [affectation["id"] for affectation in records[1]["afectaciones"]],
+            [2],
+        )
 
     def test_looker_studio_report_returns_503_without_server_configuration(self):
         self.app.config["LOOKER_STUDIO_API_KEY"] = ""

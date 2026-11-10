@@ -337,7 +337,9 @@ def _event_row_for_looker_studio(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _affectation_row_for_looker_studio(row: dict[str, Any]) -> dict[str, Any]:
-    creation_date, creation_time = _date_and_time_values(row.get("creacion"))
+    creation_date, creation_time = _date_and_time_values(
+        row.get("creacion"), basic_date=True
+    )
     row["creacion"] = creation_date
     row["hora_creacion"] = creation_time
     return _row_to_dict(row)
@@ -751,19 +753,42 @@ def _select_events_with_relations():
 
 def list_events_for_looker_studio():
     events, statement = _select_events_with_relations()
+    affectation_records = _get_table("afectacion_variable_registros")
+    affectation_variables = _get_table("afectacion_variables")
     required_columns = _missing_columns(
         events,
+        "id",
         "evento_atencion_estado_id",
         "evento_fecha",
         "latitud",
         "longitud",
         "modificacion",
     )
-    if required_columns:
+    affectation_required_columns = {
+        "afectacion_variable_registros": _missing_columns(
+            affectation_records,
+            "evento_id",
+            "creacion",
+            "afectacion_variable_id",
+        ),
+        "afectacion_variables": _missing_columns(
+            affectation_variables,
+            "id",
+            "nombre",
+        ),
+    }
+    affectation_required_columns = {
+        table_name: columns
+        for table_name, columns in affectation_required_columns.items()
+        if columns
+    }
+    if required_columns or affectation_required_columns:
         current_app.logger.error(
             "No se puede generar el reporte de eventos para Looker Studio. "
-            "Columnas faltantes en eventos: %s",
+            "Columnas faltantes en eventos: %s. "
+            "Columnas faltantes en afectaciones: %s",
             required_columns,
+            affectation_required_columns,
         )
         return jsonify(error="Fuente de datos no disponible"), 503
 
@@ -788,7 +813,43 @@ def list_events_for_looker_studio():
     rows = db.session.execute(
         statement.add_columns(close_date).order_by(order_column)
     ).mappings().all()
-    return jsonify([_event_row_for_looker_studio(dict(row)) for row in rows])
+    event_rows = [_event_row_for_looker_studio(dict(row)) for row in rows]
+
+    affectations_by_event: dict[Any, list[dict[str, Any]]] = {}
+    event_ids = [event["id"] for event in event_rows]
+    if event_ids:
+        affectation_order_column = (
+            affectation_records.c.id
+            if "id" in affectation_records.c
+            else next(iter(affectation_records.c))
+        )
+        affectation_rows = db.session.execute(
+            select(affectation_records)
+            .outerjoin(
+                affectation_variables,
+                affectation_records.c.afectacion_variable_id
+                == affectation_variables.c.id,
+            )
+            .add_columns(
+                affectation_variables.c.nombre.label(
+                    "afectacion_variable_nombre"
+                )
+            )
+            .where(affectation_records.c.evento_id.in_(event_ids))
+            .order_by(affectation_order_column)
+        ).mappings().all()
+        for affectation_row in affectation_rows:
+            affectation = _affectation_row_for_looker_studio(
+                dict(affectation_row)
+            )
+            affectations_by_event.setdefault(
+                affectation["evento_id"], []
+            ).append(affectation)
+
+    for event in event_rows:
+        event["afectaciones"] = affectations_by_event.get(event["id"], [])
+
+    return jsonify(event_rows)
 
 
 def _make_list_events_with_relations():
