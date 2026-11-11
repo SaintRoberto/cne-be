@@ -40,6 +40,7 @@ BEGIN
             pa.nombre AS parroquia_nombre,
             i.nombre AS infraestructura_nombre,
             i.nombre AS recinto_nombre,
+            et.nombre AS evento_tipo_nombre,
             eae.nombre AS evento_atencion_estado_nombre,
             %s
         FROM eventos AS e
@@ -51,6 +52,8 @@ BEGIN
             ON pa.id = e.parroquia_id
         LEFT JOIN infraestructuras AS i
             ON i.id = e.infraestructura_id
+        LEFT JOIN evento_tipos AS et
+            ON et.id = e.evento_tipo_id
         LEFT JOIN evento_atencion_estados AS eae
             ON eae.id = e.evento_atencion_estado_id
         LEFT JOIN afectacion_variable_registros AS avr
@@ -62,6 +65,7 @@ BEGIN
             c.nombre,
             pa.nombre,
             i.nombre,
+            et.nombre,
             eae.nombre
         $query$,
         v_columnas

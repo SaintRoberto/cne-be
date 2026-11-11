@@ -770,6 +770,7 @@ def _looker_event_rows_from_stored_procedure(
         "infraestructura_nombre",
         "recinto_nombre",
         "evento_atencion_estado_nombre",
+        "evento_tipo_nombre",
     }
     formatted_rows = []
     related_names_by_id = {
@@ -783,6 +784,7 @@ def _looker_event_rows_from_stored_procedure(
         "evento_atencion_estado_id": (
             "evento_atencion_estado_nombre",
         ),
+        "evento_tipo_id": ("evento_tipo_nombre",),
     }
     related_name_columns = {
         column_name
