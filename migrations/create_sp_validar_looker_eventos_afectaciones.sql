@@ -40,6 +40,7 @@ BEGIN
             pa.nombre AS parroquia_nombre,
             i.nombre AS infraestructura_nombre,
             i.nombre AS recinto_nombre,
+            eae.nombre AS evento_atencion_estado_nombre,
             %s
         FROM eventos AS e
         LEFT JOIN provincias AS p
@@ -50,6 +51,8 @@ BEGIN
             ON pa.id = e.parroquia_id
         LEFT JOIN infraestructuras AS i
             ON i.id = e.infraestructura_id
+        LEFT JOIN evento_atencion_estados AS eae
+            ON eae.id = e.evento_atencion_estado_id
         LEFT JOIN afectacion_variable_registros AS avr
             ON avr.evento_id = e.id
         WHERE ($1 IS NULL OR e.provincia_id = $1)
@@ -58,7 +61,8 @@ BEGIN
             p.nombre,
             c.nombre,
             pa.nombre,
-            i.nombre
+            i.nombre,
+            eae.nombre
         $query$,
         v_columnas
     );
