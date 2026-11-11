@@ -346,6 +346,13 @@ def _affectation_row_for_looker_studio(row: dict[str, Any]) -> dict[str, Any]:
     return _row_to_dict(row)
 
 
+def _affectation_column_for_looker_studio(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    without_parentheses = ascii_text.replace("(", "").replace(")", "")
+    return re.sub(r"\s+", "_", without_parentheses.strip())
+
+
 def _summary_number(value: Any) -> int | float:
     if value is None:
         return 0
@@ -912,7 +919,9 @@ def list_events_for_looker_studio():
         ).order_by(affectation_variables.c.id)
     ).mappings().all()
     affectation_columns = {
-        variable["id"]: variable["nombre"]
+        variable["id"]: _affectation_column_for_looker_studio(
+            variable["nombre"]
+        )
         for variable in affectation_variables_rows
     }
 

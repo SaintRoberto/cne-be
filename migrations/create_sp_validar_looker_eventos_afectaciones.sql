@@ -16,13 +16,18 @@ BEGIN
             av.id,
             replace(
                 replace(
-                    translate(
-                        av.nombre,
-                        chr(225) || chr(233) || chr(237) || chr(243)
-                            || chr(250) || chr(252) || chr(241)
-                            || chr(193) || chr(201) || chr(205) || chr(211)
-                            || chr(218) || chr(220) || chr(209),
-                        'aeiouunAEIOUUN'
+                    regexp_replace(
+                        translate(
+                            av.nombre,
+                            chr(225) || chr(233) || chr(237) || chr(243)
+                                || chr(250) || chr(252) || chr(241)
+                                || chr(193) || chr(201) || chr(205) || chr(211)
+                                || chr(218) || chr(220) || chr(209),
+                            'aeiouunAEIOUUN'
+                        ),
+                        '[[:space:]]+',
+                        '_',
+                        'g'
                     ),
                     '(',
                     ''
