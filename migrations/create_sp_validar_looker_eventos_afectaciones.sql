@@ -14,7 +14,22 @@ BEGIN
             'COALESCE(SUM(avr.cantidad) FILTER '
             '(WHERE avr.afectacion_variable_id = %s), 0)::BIGINT AS %I',
             av.id,
-            av.nombre
+            replace(
+                replace(
+                    translate(
+                        av.nombre,
+                        chr(225) || chr(233) || chr(237) || chr(243)
+                            || chr(250) || chr(252) || chr(241)
+                            || chr(193) || chr(201) || chr(205) || chr(211)
+                            || chr(218) || chr(220) || chr(209),
+                        'aeiouunAEIOUUN'
+                    ),
+                    '(',
+                    ''
+                ),
+                ')',
+                ''
+            )
         ),
         E',\n            '
         ORDER BY av.id
